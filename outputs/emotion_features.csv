@@ -1,0 +1,11 @@
+clean_text,sentiment,confidence,anger,anticipation,disgust,fear,joy,sadness,surprise,trust
+I love working with my team.,Positive,0.9870328903198242,0,0,0,0,1,0,0,0
+The workload is becoming overwhelming.,Negative,0.6529779434204102,0,0,0,0,0,0,0,0
+Today was an average day.,Negative,0.661710798740387,0,0,0,0,0,0,0,0
+I feel stressed because of deadlines.,Negative,0.7541049122810364,0,0,0,0,0,0,0,0
+I am excited about the new project.,Positive,0.9891796112060548,0,1,0,0,1,0,1,1
+I am completely exhausted after working late.,Negative,0.8005663752555847,0,0,0,0,0,1,0,0
+The meeting was productive.,Positive,0.9291179180145264,0,0,0,0,0,0,0,0
+There is too much pressure this week.,Negative,0.6242309212684631,0,0,0,0,0,0,0,0
+I enjoy collaborating with my colleagues.,Positive,0.978674292564392,0,1,0,0,1,0,0,1
+I don't feel motivated anymore.,Negative,0.8257222175598145,0,0,0,0,0,0,0,0
