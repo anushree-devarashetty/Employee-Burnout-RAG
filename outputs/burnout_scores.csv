@@ -1,11 +1,11 @@
-clean_text,sentiment,confidence,anger,anticipation,disgust,fear,joy,sadness,surprise,trust,word_count,char_count,avg_word_length,exclamation_count,question_count,uppercase_ratio,burnout_score,risk_level
-I love working with my team.,Positive,0.9870328903198242,0,0,0,0,1,0,0,0,6,28,3.8333333333333335,0,0,0.045,0,Low
-The workload is becoming overwhelming.,Negative,0.6529779434204102,0,0,0,0,0,0,0,0,5,38,6.8,0,0,0.03,2,Low
-Today was an average day.,Negative,0.661710798740387,0,0,0,0,0,0,0,0,5,25,4.2,0,0,0.05,2,Low
-I feel stressed because of deadlines.,Negative,0.7541049122810364,0,0,0,0,0,0,0,0,6,37,5.333333333333333,0,0,0.032,2,Low
-I am excited about the new project.,Positive,0.9891796112060548,0,1,0,0,1,0,1,1,7,35,4.142857142857143,0,0,0.036,0,Low
-I am completely exhausted after working late.,Negative,0.8005663752555847,0,0,0,0,0,1,0,0,7,45,5.571428571428571,0,0,0.026,3,Medium
-The meeting was productive.,Positive,0.9291179180145264,0,0,0,0,0,0,0,0,4,27,6.0,0,0,0.043,0,Low
-There is too much pressure this week.,Negative,0.6242309212684631,0,0,0,0,0,0,0,0,7,37,4.428571428571429,0,0,0.033,2,Low
-I enjoy collaborating with my colleagues.,Positive,0.978674292564392,0,1,0,0,1,0,0,1,6,41,6.0,0,0,0.029,0,Low
-I don't feel motivated anymore.,Negative,0.8257222175598145,0,0,0,0,0,0,0,0,5,31,5.4,0,0,0.04,2,Low
+clean_text,sentiment,confidence,anger,anticipation,disgust,fear,joy,sadness,surprise,trust,word_count,char_count,avg_word_length,exclamation_count,question_count,uppercase_ratio,burnout_score,risk_level,explanation
+I love working with my team.,Positive,0.9870328903198242,0,0,0,0,1,0,0,0,6,28,3.8333333333333335,0,0,0.045,0,Low,Positive emotional indicators
+The workload is becoming overwhelming.,Negative,0.6529779434204102,0,0,0,0,0,0,0,0,5,38,6.8,0,0,0.03,2,Low,Negative sentiment detected
+Today was an average day.,Negative,0.661710798740387,0,0,0,0,0,0,0,0,5,25,4.2,0,0,0.05,2,Low,Negative sentiment detected
+I feel stressed because of deadlines.,Negative,0.7541049122810364,0,0,0,0,0,0,0,0,6,37,5.333333333333333,0,0,0.032,2,Low,Negative sentiment detected
+I am excited about the new project.,Positive,0.9891796112060548,0,1,0,0,1,0,1,1,7,35,4.142857142857143,0,0,0.036,0,Low,Positive emotional indicators
+I am completely exhausted after working late.,Negative,0.8005663752555847,0,0,0,0,0,1,0,0,7,45,5.571428571428571,0,0,0.026,3,Medium,"Negative sentiment detected, Sadness-related words found"
+The meeting was productive.,Positive,0.9291179180145264,0,0,0,0,0,0,0,0,4,27,6.0,0,0,0.043,0,Low,No significant burnout indicators
+There is too much pressure this week.,Negative,0.6242309212684631,0,0,0,0,0,0,0,0,7,37,4.428571428571429,0,0,0.033,2,Low,Negative sentiment detected
+I enjoy collaborating with my colleagues.,Positive,0.978674292564392,0,1,0,0,1,0,0,1,6,41,6.0,0,0,0.029,0,Low,Positive emotional indicators
+I don't feel motivated anymore.,Negative,0.8257222175598145,0,0,0,0,0,0,0,0,5,31,5.4,0,0,0.04,2,Low,Negative sentiment detected
