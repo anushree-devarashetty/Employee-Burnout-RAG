@@ -1,0 +1,11 @@
+clean_text,sentiment,confidence
+I love working with my team.,Positive,0.9870328903198242
+The workload is becoming overwhelming.,Negative,0.6529779434204102
+Today was an average day.,Negative,0.661710798740387
+I feel stressed because of deadlines.,Negative,0.7541049122810364
+I am excited about the new project.,Positive,0.9891796112060547
+I am completely exhausted after working late.,Negative,0.8005663752555847
+The meeting was productive.,Positive,0.9291179180145264
+There is too much pressure this week.,Negative,0.6242309212684631
+I enjoy collaborating with my colleagues.,Positive,0.9786742925643921
+I don't feel motivated anymore.,Negative,0.8257222175598145
