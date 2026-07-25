@@ -1,19 +1,47 @@
+import os
 import pandas as pd
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from scipy.special import softmax
-import torch
 
-MODEL_NAME = "cardiffnlp/twitter-roberta-base-sentiment-latest"
+# -----------------------------
+# Paths
+# -----------------------------
+INPUT_FILE = "datasets/processed/enron_clean.csv"
+OUTPUT_FILE = "outputs/communication_features.csv"
+
+# -----------------------------
+# Load dataset
+# -----------------------------
+print("Loading processed Enron dataset...")
+
+df = pd.read_csv(INPUT_FILE)
+
+# For development, use only first 1000 emails.
+# Remove this line when you're ready to process the full dataset.
+df = df.head(1000)
+
+# -----------------------------
+# Load RoBERTa
+# -----------------------------
+MODEL = "cardiffnlp/twitter-roberta-base-sentiment-latest"
 
 print("Loading RoBERTa model...")
 
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)
+tokenizer = AutoTokenizer.from_pretrained(MODEL)
+model = AutoModelForSequenceClassification.from_pretrained(MODEL)
 
 labels = ["Negative", "Neutral", "Positive"]
 
+sentiments = []
+confidences = []
 
-def predict_sentiment(text):
+# -----------------------------
+# Sentiment Prediction
+# -----------------------------
+for text in df["clean_text"]:
+
+    text = str(text)
+
     encoded = tokenizer(
         text,
         return_tensors="pt",
@@ -21,32 +49,26 @@ def predict_sentiment(text):
         max_length=512
     )
 
-    with torch.no_grad():
-        output = model(**encoded)
+    output = model(**encoded)
 
-    scores = output.logits.detach().numpy()[0]
-    scores = softmax(scores)
+    scores = softmax(output.logits.detach().numpy()[0])
 
-    sentiment = labels[scores.argmax()]
-    confidence = float(scores.max())
+    index = scores.argmax()
 
-    return sentiment, confidence
+    sentiments.append(labels[index])
+    confidences.append(round(float(scores[index]), 4))
 
-
-df = pd.read_csv("datasets/sample.csv")
-
-sentiments = []
-confidences = []
-
-for text in df["clean_text"]:
-    sentiment, confidence = predict_sentiment(str(text))
-    sentiments.append(sentiment)
-    confidences.append(confidence)
-
+# -----------------------------
+# Save Results
+# -----------------------------
 df["sentiment"] = sentiments
 df["confidence"] = confidences
 
-df.to_csv("outputs/communication_features.csv", index=False)
+os.makedirs("outputs", exist_ok=True)
 
-print(df)
-print("\nSaved to outputs/communication_features.csv")
+df.to_csv(OUTPUT_FILE, index=False)
+
+print("\nSentiment Analysis Complete!\n")
+print(df[["clean_text", "sentiment", "confidence"]].head())
+
+print(f"\nSaved to {OUTPUT_FILE}")

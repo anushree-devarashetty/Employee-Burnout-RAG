@@ -10,27 +10,32 @@ df = pd.read_csv(INPUT_FILE)
 
 
 # -----------------------------
-# Burnout Score Calculation
+# Burnout Score
 # -----------------------------
 def calculate_score(row):
+
     score = 0
 
     # Sentiment
     if row["sentiment"] == "Negative":
         score += 2
+    elif row["sentiment"] == "Neutral":
+        score += 1
     elif row["sentiment"] == "Positive":
         score -= 1
 
-    # Emotion Scores
+    # Emotions
     score += row["anger"]
     score += row["fear"]
     score += row["sadness"]
 
-    # Positive emotion reduces burnout
     score -= row["joy"]
 
-    # Behavioral Features
-    if row["word_count"] > 25:
+    # Behavioural Features
+    if row["word_count"] > 120:
+        score += 1
+
+    if row["sentence_count"] > 8:
         score += 1
 
     if row["exclamation_count"] > 2:
@@ -58,35 +63,41 @@ def risk_level(score):
 
 
 # -----------------------------
-# Explainable AI
+# Explainability
 # -----------------------------
 def explanation(row):
 
     reasons = []
 
     if row["sentiment"] == "Negative":
-        reasons.append("Negative sentiment detected")
+        reasons.append("Negative sentiment")
+
+    elif row["sentiment"] == "Neutral":
+        reasons.append("Neutral sentiment")
 
     if row["anger"] > 0:
-        reasons.append("Anger-related words found")
+        reasons.append("Anger detected")
 
     if row["fear"] > 0:
-        reasons.append("Fear-related words found")
+        reasons.append("Fear detected")
 
     if row["sadness"] > 0:
-        reasons.append("Sadness-related words found")
+        reasons.append("Sadness detected")
 
     if row["joy"] > 0:
-        reasons.append("Positive emotional indicators")
+        reasons.append("Positive emotion detected")
 
-    if row["word_count"] > 25:
+    if row["word_count"] > 120:
         reasons.append("Long email")
 
-    if row["exclamation_count"] > 2:
-        reasons.append("Frequent exclamation marks")
+    if row["sentence_count"] > 8:
+        reasons.append("Many sentences")
 
     if row["uppercase_ratio"] > 0.25:
         reasons.append("High uppercase usage")
+
+    if row["exclamation_count"] > 2:
+        reasons.append("Frequent exclamation marks")
 
     if len(reasons) == 0:
         reasons.append("No significant burnout indicators")
@@ -95,7 +106,7 @@ def explanation(row):
 
 
 # -----------------------------
-# Apply Functions
+# Apply
 # -----------------------------
 df["burnout_score"] = df.apply(calculate_score, axis=1)
 
@@ -105,28 +116,23 @@ df["explanation"] = df.apply(explanation, axis=1)
 
 
 # -----------------------------
-# Save Results
+# Save
 # -----------------------------
 os.makedirs("outputs", exist_ok=True)
 
 df.to_csv(OUTPUT_FILE, index=False)
 
-
-# -----------------------------
-# Display Results
-# -----------------------------
 print("\nBurnout Prediction Complete!\n")
 
 print(
     df[
         [
-            "clean_text",
             "sentiment",
             "burnout_score",
             "risk_level",
-            "explanation",
+            "explanation"
         ]
-    ]
+    ].head(10)
 )
 
-print(f"\nResults saved to: {OUTPUT_FILE}")
+print(f"\nSaved to {OUTPUT_FILE}")
