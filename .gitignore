@@ -1,0 +1,240 @@
+# ==============================================================================
+# Explainable Employee Burnout Detection using ML, Sentiment Analysis and RAG
+# ------------------------------------------------------------------------------
+# This file was empty (0 bytes) before Person 3 / Person 4. Everything below is
+# an ADDITION — no previously ignored rule was removed, because none existed.
+#
+# READ THIS BEFORE ADDING RULES
+#   outputs/*.csv is Person 2's committed deliverable and MUST stay tracked.
+#   Person 3 and Person 4 read outputs/burnout_scores.csv at runtime. If you
+#   ever ignore `outputs/`, the backend and dashboard break for every teammate
+#   who clones the repo. The rules in section 5 keep the CSVs and ignore only
+#   the report artefacts we generate on top of them.
+# ==============================================================================
+
+
+# ------------------------------------------------------------------------------
+# 1. SECRETS  (highest priority — API keys live here)
+# ------------------------------------------------------------------------------
+# .env holds OPENAI_API_KEY / GOOGLE_API_KEY. Never commit it.
+# .env.example IS committed and is explicitly re-included below.
+.env
+.env.*
+!.env.example
+
+*.key
+*.pem
+secrets.json
+credentials.json
+service-account*.json
+
+
+# ------------------------------------------------------------------------------
+# 2. PYTHON
+# ------------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Test / lint / type-check caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+
+
+# ------------------------------------------------------------------------------
+# 3. VIRTUAL ENVIRONMENTS
+# ------------------------------------------------------------------------------
+# Four collaborators on three operating systems — every common venv name.
+venv/
+.venv/
+env/
+ENV/
+backend/venv/
+backend/.venv/
+frontend/venv/
+frontend/.venv/
+pyvenv.cfg
+pip-log.txt
+pip-delete-this-directory.txt
+
+
+# ------------------------------------------------------------------------------
+# 4. PERSON 3 — RAG BACKEND ARTEFACTS
+# ------------------------------------------------------------------------------
+# ChromaDB persists an on-disk index (SQLite + binary HNSW segments). It is
+# fully regenerable from outputs/burnout_scores.csv via POST /refresh, it is
+# large and binary, and it produces unresolvable merge conflicts. Never commit.
+backend/chroma_db/
+chroma_db/
+*.chroma
+chroma.sqlite3
+
+# Sentence-Transformers / HuggingFace model weights. all-MiniLM-L6-v2 is ~80MB
+# and is downloaded automatically on first run.
+.cache/
+models_cache/
+sentence_transformers_cache/
+.huggingface/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.onnx
+
+# Defensive: Person 2's Python source lives under models/ and MUST stay tracked.
+# The rules above are extension-based so no .py is affected today, but this
+# guarantees it for anyone who adds broader rules later.
+!models/**/*.py
+
+
+# ------------------------------------------------------------------------------
+# 5. OUTPUTS  (keep Person 2's CSVs, ignore generated reports)
+# ------------------------------------------------------------------------------
+# Generated PDF reports from the dashboard's "Download PDF Report" button.
+outputs/reports/
+outputs/*.pdf
+outputs/*.html
+reports/
+*.pdf
+
+# Explicitly KEEP every CSV Person 2 committed. These negations must stay at the
+# end of this section so they win over the broader rules above.
+!outputs/*.csv
+!outputs/burnout_scores.csv
+!outputs/employee_features.csv
+!outputs/behavior_features.csv
+!outputs/emotion_features.csv
+!outputs/communication_features.csv
+
+
+# ------------------------------------------------------------------------------
+# 6. DATASETS
+# ------------------------------------------------------------------------------
+# Raw Enron / Kaggle downloads are far too large for git. Person 1's small
+# processed CSVs and the NRC lexicon stay tracked.
+datasets/raw/
+datasets/*.zip
+datasets/*.tar.gz
+datasets/*.7z
+datasets/maildir/
+datasets/enron_mail_*/
+*.sqlite
+*.db
+
+!datasets/processed/*.csv
+!datasets/sample.csv
+!datasets/NRC-Emotion-Lexicon-Wordlevel-v0.92.txt
+
+
+# ------------------------------------------------------------------------------
+# 7. STREAMLIT
+# ------------------------------------------------------------------------------
+.streamlit/secrets.toml
+.streamlit/cache/
+
+
+# ------------------------------------------------------------------------------
+# 8. LOGS
+# ------------------------------------------------------------------------------
+*.log
+logs/
+backend/logs/
+frontend/logs/
+nohup.out
+uvicorn.log
+streamlit.log
+
+
+# ------------------------------------------------------------------------------
+# 9. JUPYTER
+# ------------------------------------------------------------------------------
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+profile_default/
+ipython_config.py
+
+
+# ------------------------------------------------------------------------------
+# 10. OPERATING SYSTEM
+# ------------------------------------------------------------------------------
+# NOTE: .DS_Store is already TRACKED in this repo and shows as modified on every
+# `git status`. This rule alone does NOT untrack it. Run once, then commit:
+#     git rm --cached .DS_Store
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.AppleDouble
+.LSOverride
+Icon
+
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+
+# ------------------------------------------------------------------------------
+# 11. EDITORS AND IDEs
+# ------------------------------------------------------------------------------
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.iml
+*.iws
+*.ipr
+.spyderproject
+.spyproject
+.ropeproject
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+.vim/
+
+
+# ------------------------------------------------------------------------------
+# 12. MISC
+# ------------------------------------------------------------------------------
+tmp/
+temp/
+scratch/
+*.bak
+*.orig
+*.rej
+node_modules/

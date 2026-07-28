@@ -1,0 +1,39 @@
+# ==============================================================================
+# Person 4 — Frontend Dashboard dependencies
+# ------------------------------------------------------------------------------
+# Install (from the repository root, inside a virtual environment):
+#     pip install -r frontend/requirements.txt
+#
+# The dashboard imports `backend.data_loader` so that its charts and the
+# backend's API report identical numbers. In practice you will install BOTH
+# requirements files into one environment:
+#
+#     pip install -r backend/requirements.txt
+#     pip install -r frontend/requirements.txt
+#
+# They are kept separate so the dashboard can also be deployed on its own
+# against a remote API, in which case only this file is needed and the charts
+# fall back to fetching data over HTTP.
+# ==============================================================================
+
+# --- Dashboard ----------------------------------------------------------------
+streamlit>=1.33
+
+# --- Charts -------------------------------------------------------------------
+plotly>=5.20
+
+# --- PDF report ---------------------------------------------------------------
+reportlab>=4.1
+
+# --- HTTP client --------------------------------------------------------------
+# `requests`, not httpx: Streamlit's execution model is synchronous, and
+# requests' connection pooling is reused across script reruns.
+requests>=2.31
+
+# --- Data ---------------------------------------------------------------------
+pandas>=2.0
+numpy>=1.24,<3.0
+
+# --- Configuration ------------------------------------------------------------
+# Reads API_BASE_URL and API_TIMEOUT from the shared .env file.
+python-dotenv>=1.0

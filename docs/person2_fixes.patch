@@ -1,0 +1,56 @@
+From: Person 3 (RAG Backend)
+Subject: [PATCH] fix(models): read clean_text instead of the non-existent message column
+
+models/features/behavior_features.py references df["message"] in four places,
+but the upstream outputs/emotion_features.csv has no "message" column — it only
+carries "clean_text". The script therefore raises KeyError: 'message' and never
+writes the sentence_count column.
+
+models/burnout/burnout_score.py then reads row["sentence_count"] (lines 38 and
+93) and raises KeyError: 'sentence_count' as a direct consequence.
+
+Both crashes are fixed by this single change. burnout_score.py itself needs no
+edit — its error was a downstream symptom.
+
+Verified on the committed 10-row dataset:
+  - Before: behavior_features.py -> KeyError: 'message'
+            burnout_score.py     -> KeyError: 'sentence_count'
+  - After : full pipeline runs end to end
+  - Scores unchanged: 0, 2, 2, 2, 0, 3, 0, 2, 0, 2
+  - Risk mix unchanged: Low 9, Medium 1, High 0
+
+Apply from the repository root with:
+    git apply docs/person2_fixes.patch
+
+--- a/models/features/behavior_features.py
++++ b/models/features/behavior_features.py
+@@ -24,17 +24,17 @@
+     )
+ )
+
+-df["sentence_count"] = df["message"].apply(
++df["sentence_count"] = df["clean_text"].apply(
+     lambda x: len(
+         [s for s in str(x).split(".") if s.strip()]
+     )
+ )
+
+-df["exclamation_count"] = df["message"].apply(
++df["exclamation_count"] = df["clean_text"].apply(
+     lambda x: str(x).count("!")
+ )
+
+-df["question_count"] = df["message"].apply(
++df["question_count"] = df["clean_text"].apply(
+     lambda x: str(x).count("?")
+ )
+
+@@ -53,7 +53,7 @@
+     return round(upper / len(letters), 3)
+
+
+-df["uppercase_ratio"] = df["message"].apply(uppercase_ratio)
++df["uppercase_ratio"] = df["clean_text"].apply(uppercase_ratio)
+
+ os.makedirs("outputs", exist_ok=True)
+

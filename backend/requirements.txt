@@ -1,0 +1,65 @@
+# ==============================================================================
+# Person 3 — RAG Backend dependencies
+# ------------------------------------------------------------------------------
+# Install (from the repository root, inside a virtual environment):
+#     pip install -r backend/requirements.txt
+#
+# Separate from the root requirements.txt on purpose. That file is a full
+# `pip freeze` of one developer's machine — 400+ lines including TensorFlow,
+# OpenCV, MediaPipe, Flask and 200 macOS-only pyobjc packages. It cannot be
+# installed on Windows or Linux at all. This file lists only what the backend
+# actually imports, so a teammate on any OS can install it.
+#
+# Lower bounds, not exact pins: this must coexist with Person 2's
+# transformers/torch stack in a shared environment, and exact pins would
+# conflict. Upper bounds are set only where a known-breaking major release
+# exists.
+# ==============================================================================
+
+# --- Web framework ------------------------------------------------------------
+fastapi>=0.110,<1.0
+uvicorn[standard]>=0.27
+python-multipart>=0.0.9          # form parsing, required by FastAPI for uploads
+
+# --- Configuration ------------------------------------------------------------
+pydantic>=2.6,<3.0               # v2 required: schemas.py uses field_validator
+pydantic-settings>=2.2
+python-dotenv>=1.0
+
+# --- Embeddings ---------------------------------------------------------------
+# Pulls torch and transformers. If Person 2's environment already has them,
+# pip keeps the existing versions.
+sentence-transformers>=2.6
+
+# --- Vector store -------------------------------------------------------------
+# Upper bound raised from <0.7 to <2.0 after a real incompatibility:
+# `list_collections()` returns Collection objects on 1.x but plain strings on
+# 0.6.x, so `[c.name for c in ...]` breaks on one or the other. vectorstore.py
+# now normalises both shapes, so either line of releases works — but pin this
+# for the whole team so everyone is exercising the same code path.
+chromadb>=0.4.24,<2.0
+
+# --- LLM providers ------------------------------------------------------------
+# One HTTP client covers OpenAI, Gemini and Ollama. No provider SDKs are
+# installed: three SDKs means three dependency trees and three sets of
+# breaking changes, for calls that are a single POST each.
+httpx>=0.27
+
+# --- LangChain ----------------------------------------------------------------
+# Used for RAG orchestration concepts and the Embeddings interface. Only the
+# core package is required; llm_client.to_langchain_llm() imports from
+# langchain_core lazily, so nothing here is needed on the hot path.
+langchain-core>=0.2
+langchain>=0.2
+langchain-community>=0.2
+
+# --- Data ---------------------------------------------------------------------
+pandas>=2.0
+numpy>=1.24,<3.0
+
+# --- Testing ------------------------------------------------------------------
+# Not optional: tests/ ships with this repo and the README instructs you to run
+# `pytest` as a verification step. Leaving this commented out means that step
+# fails with "command not found" on a clean install.
+# httpx (above) doubles as the transport for FastAPI's TestClient.
+pytest>=8.0
