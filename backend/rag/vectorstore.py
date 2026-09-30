@@ -393,6 +393,93 @@ class BurnoutVectorStore:
                 reason=reason,
             )
 
+    def add_records(
+        self, frame: "pd.DataFrame", source_type: str = "upload"
+    ) -> int:
+        """Add scored records from an uploaded document to the index.
+
+        Uploaded messages join the SAME collection as the main dataset, tagged
+        with ``source_type`` so retrieval can tell them apart. That means the
+        existing RAG pipeline can answer questions about an uploaded
+        conversation immediately, with no changes to `retriever.py`.
+
+        They are NOT written back to `outputs/burnout_scores.csv`. Person 2's
+        file stays the system of record, and `POST /refresh` — which rebuilds
+        from that file — therefore clears uploads. That is intended: refresh
+        means "re-sync with the ML pipeline's output".
+
+        Args:
+            frame: Scored rows from `ingest.pipeline_runner.score_messages`.
+            source_type: Tag written into metadata.
+
+        Returns:
+            Number of records added.
+        """
+        if frame is None or frame.empty:
+            return 0
+
+        from backend.data_loader import row_to_metadata
+
+        with self._lock:
+            collection = self._get_collection(create=True)
+
+            documents = frame["document_text"].astype(str).tolist()
+            ids = frame["employee_id"].astype(str).tolist()
+
+            metadatas = []
+            for _, row in frame.iterrows():
+                metadata = row_to_metadata(row)
+                metadata["source_type"] = source_type
+                # Upload-only provenance. Chroma takes scalars only, so these
+                # are coerced to strings rather than passed through as None.
+                for key in ("sender", "timestamp", "subject", "source"):
+                    metadata[key] = str(row.get(key, "") or "")
+                metadatas.append(metadata)
+
+            # An uploaded document can legitimately repeat an ID across two
+            # uploads in the same session, so prefix with the source file to
+            # keep them distinct instead of silently upserting.
+            existing = set()
+            try:
+                existing = set(collection.get(include=[])["ids"])
+            except Exception:
+                pass
+
+            unique_ids, unique_docs, unique_meta = [], [], []
+            for record_id, document, metadata in zip(ids, documents, metadatas):
+                candidate, suffix = record_id, 1
+                while candidate in existing:
+                    suffix += 1
+                    candidate = f"{record_id}_{suffix}"
+                existing.add(candidate)
+                metadata["employee_id"] = candidate
+                unique_ids.append(candidate)
+                unique_docs.append(document)
+                unique_meta.append(metadata)
+
+            vectors = self.embedder.embed_documents(unique_docs)
+
+            try:
+                for start in range(0, len(unique_ids), _ADD_BATCH_SIZE):
+                    end = start + _ADD_BATCH_SIZE
+                    collection.add(
+                        ids=unique_ids[start:end],
+                        documents=unique_docs[start:end],
+                        embeddings=vectors[start:end],
+                        metadatas=unique_meta[start:end],
+                    )
+            except Exception as exc:
+                raise VectorStoreError(
+                    f"Failed to index uploaded records: {exc}"
+                ) from exc
+
+            logger.info(
+                "Indexed %d uploaded record(s) as source_type='%s'.",
+                len(unique_ids),
+                source_type,
+            )
+            return len(unique_ids)
+
     def _write_fingerprint(self, fingerprint: str) -> None:
         """Persist the fingerprint into collection metadata.
 

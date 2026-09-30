@@ -180,7 +180,9 @@ def test_unknown_path_returns_404(client):
     assert client.get("/nope").status_code == 404
 
 
-def test_openapi_documents_all_six_endpoints(client):
+def test_openapi_documents_every_endpoint(client):
     paths = client.get("/openapi.json").json()["paths"]
-    assert set(paths) == {"/", "/health", "/statistics", "/query", "/report",
-                          "/refresh"}
+    assert set(paths) == {
+        "/", "/health", "/statistics", "/query", "/report", "/refresh",
+        "/ingest",
+    }

@@ -57,6 +57,20 @@ langchain-community>=0.2
 pandas>=2.0
 numpy>=1.24,<3.0
 
+# --- Document ingestion (PDF + image upload) ----------------------------------
+pdfplumber>=0.11               # PDF text extraction
+pytesseract>=0.3.10            # OCR wrapper — ALSO needs the tesseract binary:
+                               #   macOS   brew install tesseract
+                               #   Ubuntu  sudo apt install tesseract-ocr
+                               #   Windows https://github.com/UB-Mannheim/tesseract/wiki
+Pillow>=10.0                   # image loading and OCR preprocessing
+
+# RoBERTa sentiment for uploaded documents. Person 2 already depends on these;
+# listed explicitly because the backend now imports them at runtime rather than
+# only via their offline scripts.
+transformers>=4.38
+scipy>=1.11
+
 # --- Testing ------------------------------------------------------------------
 # Not optional: tests/ ships with this repo and the README instructs you to run
 # `pytest` as a verification step. Leaving this commented out means that step

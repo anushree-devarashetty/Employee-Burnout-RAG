@@ -47,7 +47,15 @@ if __package__ in (None, ""):  # pragma: no cover - script-mode only
 
     _sys.path.insert(0, str(_Path(__file__).resolve().parent.parent))
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import (
+    FastAPI,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -58,6 +66,10 @@ from backend.data_loader import (
     compute_statistics,
     load_burnout_dataset,
 )
+from backend.ingest.extractors import ExtractionError, extract
+from backend.ingest.message_splitter import split_messages
+from backend.ingest.pipeline_runner import PipelineError as IngestPipelineError
+from backend.ingest.pipeline_runner import score_messages
 from backend.rag.embeddings import EmbeddingError, get_embedding_model
 from backend.rag.llm_client import get_llm_client
 from backend.rag.rag_pipeline import PipelineError, get_pipeline
@@ -66,6 +78,8 @@ from backend.rag.vectorstore import VectorStoreError, get_vector_store
 from backend.schemas import (
     ErrorResponse,
     HealthResponse,
+    IngestedMessage,
+    IngestResponse,
     QueryRequest,
     QueryResponse,
     RefreshRequest,
@@ -205,6 +219,27 @@ async def _handle_pipeline(request: Request, exc: PipelineError):
         "PipelineError",
         str(exc),
         "Check the LLM provider settings in .env, then see GET /health",
+    )
+
+
+@app.exception_handler(ExtractionError)
+async def _handle_extraction(request: Request, exc: ExtractionError):
+    """A bad upload is the user's input problem, so 400 rather than 500."""
+    return _error(
+        status.HTTP_400_BAD_REQUEST,
+        "ExtractionError",
+        str(exc),
+        "Check the file type and that the document is not password-protected.",
+    )
+
+
+@app.exception_handler(IngestPipelineError)
+async def _handle_ingest_pipeline(request: Request, exc: IngestPipelineError):
+    return _error(
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        "IngestPipelineError",
+        str(exc),
+        "pip install -r backend/requirements.txt",
     )
 
 
@@ -379,6 +414,132 @@ async def refresh(request: RefreshRequest | None = None) -> RefreshResponse:
         persist_dir=result.persist_dir,
         elapsed_seconds=round(time.perf_counter() - started, 3),
         source=dataset.describe(),
+    )
+
+
+# ==============================================================================
+# POST /ingest
+# ==============================================================================
+@app.post("/ingest", response_model=IngestResponse, tags=["ingest"])
+async def ingest(
+    file: UploadFile = File(..., description="PDF, image or text file."),
+    index: bool = Query(
+        default=True,
+        description="Add the extracted messages to the vector store so the "
+                    "RAG panel can answer questions about them.",
+    ),
+    id_prefix: str = Query(
+        default="DOC",
+        max_length=8,
+        description="Record ID prefix. DOC keeps uploads visually distinct "
+                    "from the dataset's EMP_ rows.",
+    ),
+) -> IngestResponse:
+    """Analyse an uploaded document of workplace communication.
+
+    Accepts PDF exports of email threads, chat transcripts, and screenshots of
+    conversations (PNG/JPG). The file is read, split into individual messages,
+    and scored through the same pipeline that produced the main dataset — using
+    Person 2's own scoring functions, so uploaded records are directly
+    comparable with the committed data.
+
+    Uploads are never written to `outputs/burnout_scores.csv`. They are indexed
+    into the vector store tagged as uploads, and are cleared by `POST /refresh`.
+    """
+    started = time.perf_counter()
+
+    data = await file.read()
+    filename = file.filename or "upload"
+
+    extraction = extract(data, filename)
+    warnings = list(extraction.warnings)
+
+    if extraction.is_empty:
+        return IngestResponse(
+            filename=filename,
+            status=ServiceStatus.DEGRADED,
+            extraction_method=extraction.method,
+            ocr_used=extraction.ocr_used,
+            page_count=extraction.page_count,
+            character_count=0,
+            split_strategy="none",
+            message_count=0,
+            elapsed_seconds=round(time.perf_counter() - started, 3),
+            warnings=warnings
+            + ["No readable text was found, so nothing could be analysed."],
+        )
+
+    split = split_messages(extraction.text, source=filename)
+    warnings.extend(split.warnings)
+
+    if not split.messages:
+        return IngestResponse(
+            filename=filename,
+            status=ServiceStatus.DEGRADED,
+            extraction_method=extraction.method,
+            ocr_used=extraction.ocr_used,
+            page_count=extraction.page_count,
+            character_count=extraction.char_count,
+            split_strategy=split.strategy,
+            message_count=0,
+            elapsed_seconds=round(time.perf_counter() - started, 3),
+            warnings=warnings + ["No messages could be identified."],
+        )
+
+    scored = score_messages(split.messages, settings=settings, id_prefix=id_prefix)
+    warnings.extend(scored.warnings)
+
+    indexed_count = 0
+    if index and not scored.is_empty:
+        try:
+            indexed_count = get_vector_store().add_records(
+                scored.frame, source_type="upload"
+            )
+        except Exception as exc:
+            # Indexing failing must not discard a completed analysis — the
+            # user still gets their scores, just without RAG over them.
+            logger.warning("Could not index uploaded records: %s", exc)
+            warnings.append(
+                f"Messages were analysed but could not be added to the search "
+                f"index, so the RAG panel will not see them: {exc}"
+            )
+
+    if extraction.ocr_used:
+        warnings.append(
+            "This document was read using OCR. Character recognition errors "
+            "reduce the accuracy of sentiment and emotion detection, so treat "
+            "these scores as more approximate than usual."
+        )
+
+    return IngestResponse(
+        filename=filename,
+        status=ServiceStatus.OK,
+        extraction_method=extraction.method,
+        ocr_used=extraction.ocr_used,
+        page_count=extraction.page_count,
+        character_count=extraction.char_count,
+        split_strategy=split.strategy,
+        message_count=scored.message_count,
+        messages=[
+            IngestedMessage(**row)
+            for row in scored.frame[
+                [
+                    "employee_id", "clean_text", "sentiment", "confidence",
+                    "risk_level", "burnout_score", "burnout_percent",
+                    "dominant_emotion", "explanation", "sender", "timestamp",
+                    "subject",
+                ]
+            ].to_dict(orient="records")
+        ],
+        statistics=StatisticsResponse(
+            **compute_statistics(scored.frame),
+            source={"path": filename, "records": scored.message_count,
+                    "owner": "uploaded document"},
+        ),
+        indexed=indexed_count > 0,
+        indexed_count=indexed_count,
+        elapsed_seconds=round(time.perf_counter() - started, 3),
+        warnings=warnings,
     )
 
 

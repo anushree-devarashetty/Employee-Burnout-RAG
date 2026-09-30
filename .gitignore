@@ -146,9 +146,27 @@ datasets/enron_mail_*/
 *.sqlite
 *.db
 
+# Person 1's processed outputs. The small ones are committed so the project is
+# reproducible from a fresh clone.
 !datasets/processed/*.csv
 !datasets/sample.csv
 !datasets/NRC-Emotion-Lexicon-Wordlevel-v0.92.txt
+
+# EXCEPT the Enron corpus, which is 2.1 GB (517,401 rows).
+#
+# GitHub hard-rejects any file over 100 MB, so committing this does not merely
+# bloat the repository — it makes `git push` FAIL for the whole branch, and the
+# blob stays in history afterwards even if you delete the file in a later
+# commit. It is regenerable from the raw Enron download by Person 1's
+# preprocessing, so there is no reason to store it here.
+#
+# Anyone who needs it should run Person 1's preprocessing, or fetch it from
+# shared storage (Drive/S3) and drop it in this folder.
+datasets/processed/enron_clean.csv
+datasets/processed/enron*.csv
+datasets/processed/*_full.csv
+
+# Any processed file that grows past a sane size should be added above too.
 
 
 # ------------------------------------------------------------------------------

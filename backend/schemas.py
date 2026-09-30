@@ -360,6 +360,7 @@ class RootResponse(BaseModel):
             "POST /query": "Ask a natural-language question (full RAG pipeline)",
             "POST /report": "Generate a structured organisational report",
             "POST /refresh": "Rebuild the vector store from Person 2's CSV",
+            "POST /ingest": "Upload a PDF or image of emails/conversations to analyse",
         }
     )
 
@@ -634,6 +635,74 @@ class RefreshResponse(BaseModel):
 
 
 # ==============================================================================
+# POST /ingest
+# ==============================================================================
+class IngestedMessage(BaseModel):
+    """One message extracted from an uploaded document and scored."""
+
+    employee_id: str = Field(..., description="Record ID, prefixed DOC_.")
+    clean_text: str
+    sentiment: str
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    risk_level: RiskLevel
+    burnout_score: float
+    burnout_percent: float = Field(..., ge=0, le=100)
+    dominant_emotion: str
+    explanation: str = ""
+    sender: str = Field(default="", description="Parsed from the document.")
+    timestamp: str = Field(default="", description="Parsed from the document.")
+    subject: str = ""
+
+    @field_validator("risk_level", mode="before")
+    @classmethod
+    def _coerce_risk(cls, v: Any) -> Any:
+        return _to_risk_level(v)
+
+
+class IngestResponse(BaseModel):
+    """Result of ``POST /ingest``.
+
+    Reports how the text was obtained and how it was split, because both
+    materially affect how much the analysis can be trusted. OCR text is less
+    reliable than an extracted text layer, and a document that fell back to the
+    paragraph splitter has diluted per-message signal — the user should be able
+    to see that rather than infer it.
+    """
+
+    filename: str
+    status: ServiceStatus = ServiceStatus.OK
+
+    extraction_method: str = Field(
+        ..., description="pdf-text | pdf-ocr | image-ocr | plain-text"
+    )
+    ocr_used: bool = Field(
+        default=False, description="True if OCR was involved. Lower confidence."
+    )
+    page_count: int = Field(default=0, ge=0)
+    character_count: int = Field(default=0, ge=0)
+
+    split_strategy: str = Field(
+        ..., description="email | chat | speaker | paragraph | whole-document"
+    )
+    message_count: int = Field(..., ge=0)
+
+    messages: List[IngestedMessage] = Field(default_factory=list)
+    statistics: Optional[StatisticsResponse] = Field(
+        default=None, description="Aggregates over the uploaded messages only."
+    )
+
+    indexed: bool = Field(
+        default=False,
+        description="True if the messages were added to the vector store and "
+                    "are now answerable by the RAG panel.",
+    )
+    indexed_count: int = Field(default=0, ge=0)
+
+    elapsed_seconds: float = Field(..., ge=0)
+    warnings: List[str] = Field(default_factory=list)
+
+
+# ==============================================================================
 # Errors
 # ==============================================================================
 class ErrorResponse(BaseModel):
@@ -676,5 +745,7 @@ __all__ = [
     "ReportResponse",
     "RefreshRequest",
     "RefreshResponse",
+    "IngestedMessage",
+    "IngestResponse",
     "ErrorResponse",
 ]
