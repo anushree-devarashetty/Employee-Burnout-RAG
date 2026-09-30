@@ -22,14 +22,15 @@ models/                   Person 2  — RoBERTa sentiment, NRC emotions,
    v
 outputs/burnout_scores.csv           <-- THE INTEGRATION CONTRACT
    |
-   +----------------------------+
-   |                            |
-   v                            v
-backend/     Person 3           frontend/   Person 4
-  FastAPI + LangChain             Streamlit + Plotly + ReportLab
-  Sentence-Transformers
-  ChromaDB
+   +----------------------------+----------------------------+
+   |                            |                            |
+   v                            v                            v
+backend/     Person 3           frontend/   Person 4         quantum/
+  FastAPI + LangChain             Streamlit + Plotly           PennyLane + Qiskit
+  Sentence-Transformers           ReportLab                    VQC + quantum kernel
+  ChromaDB                        PDF/image upload             classical baselines
   OpenAI | Gemini | Ollama
+  PDF/image ingestion + OCR
 ```
 
 **Person 3 and Person 4 consume `outputs/burnout_scores.csv` read-only.** The
@@ -62,7 +63,7 @@ pip install -r backend/requirements.txt -r frontend/requirements.txt
 cp .env.example .env
 
 # 3. Local model (default provider — free, offline, no API key)
-ollama pull llama3.1 && ollama serve
+ollama pull llama3.2 && ollama serve
 
 # 4. Backend                    -> http://localhost:8000/docs
 uvicorn backend.app:app --reload --port 8000
@@ -117,10 +118,17 @@ python -m pip install --upgrade pip
 pip install -r backend/requirements.txt
 pip install -r frontend/requirements.txt
 
+# Optional: OCR for uploaded screenshots and scanned PDFs.
+# pip cannot install the Tesseract engine — only its Python wrapper.
+brew install tesseract
+
+# Optional: quantum ML comparative study (heavy; not needed to run the app).
+pip install -r quantum/requirements.txt
+
 cp .env.example .env
 
 # Optional: local LLM
-brew install ollama && ollama pull llama3.1 && ollama serve
+brew install ollama && ollama pull llama3.2 && ollama serve
 
 # Apple Silicon: GPU embeddings are ~3x faster. In .env set:
 #   EMBEDDING_DEVICE=mps
@@ -145,7 +153,7 @@ pip install -r frontend/requirements.txt
 cp .env.example .env
 
 curl -fsSL https://ollama.com/install.sh | sh
-ollama pull llama3.1 && ollama serve &
+ollama pull llama3.2 && ollama serve &
 
 # NVIDIA GPU: in .env set EMBEDDING_DEVICE=cuda
 
@@ -169,7 +177,7 @@ Edit `.env`. Change nothing else — no Python file needs touching.
 
 | Provider | `.env` |
 |---|---|
-| **Ollama** (default, free, offline) | `LLM_PROVIDER=ollama`<br>`OLLAMA_MODEL=llama3.1` |
+| **Ollama** (default, free, offline) | `LLM_PROVIDER=ollama`<br>`OLLAMA_MODEL=llama3.2` |
 | **OpenAI** | `LLM_PROVIDER=openai`<br>`OPENAI_API_KEY=sk-...`<br>`OPENAI_MODEL=gpt-4o-mini` |
 | **Gemini** | `LLM_PROVIDER=gemini`<br>`GOOGLE_API_KEY=...`<br>`GEMINI_MODEL=gemini-2.0-flash` |
 | **Groq / Together / vLLM** | `LLM_PROVIDER=openai`<br>`OPENAI_BASE_URL=https://api.groq.com/openai/v1` |
@@ -192,6 +200,7 @@ Interactive docs at `http://localhost:8000/docs`.
 | POST | `/query` | Ask a question — full RAG pipeline |
 | POST | `/report` | Structured report |
 | POST | `/refresh` | Rebuild the vector index from the CSV |
+| POST | `/ingest` | Upload a PDF or image of emails/conversations to analyse |
 
 `/statistics` and `/refresh` are additions beyond the four specified endpoints:
 `/statistics` stops each chart re-reading and re-aggregating the CSV, and
@@ -230,6 +239,145 @@ from Person 2's rule-based `explanation` column instead. The request still
 returns **HTTP 200** with a usable answer, and both the dashboard and the PDF
 display a banner saying so. An HR user is never shown a stack trace, and never
 left unable to tell whether a language model was involved.
+
+---
+
+## Document ingestion — analyse your own communication
+
+Upload real workplace communication and run it through the same pipeline that
+produced the main dataset.
+
+| Input | Handling |
+|---|---|
+| `.pdf` with a text layer | pdfplumber extraction |
+| `.pdf` scanned | automatic per-page OCR fallback |
+| `.png .jpg .webp .bmp .tiff` | OCR — screenshots of WhatsApp, Slack, Teams |
+| `.txt .md .csv` | direct decode (UTF-8 and cp1252) |
+
+**Sidebar → Upload Communication → Analyse Uploads**, or via the API:
+
+```bash
+curl -X POST "http://localhost:8000/ingest" -F "file=@emails.pdf"
+```
+
+### How it works
+
+```
+upload -> extract -> split into messages -> score -> index -> RAG
+          PDF/OCR   email | chat | speaker  P2 rules  Chroma
+```
+
+The splitter tries four strategies in order of specificity — email headers,
+timestamped chat lines, transcript speaker labels, then paragraph breaks — and
+keeps the first that produces a plausible result. This matters more than it
+sounds: burnout signals are per-utterance, and a complaint buried in a
+2,000-word block is diluted into invisibility.
+
+**Short messages are deliberately preserved in chat mode.** `"not ok"` (6
+chars), `"I can't"` (7) and `"I'm done"` (8) are among the strongest signals a
+person sends, so the minimum length is 3 characters where a timestamp proves a
+message is real, versus 25 in paragraph mode where short blocks are page
+furniture.
+
+### Reusing Person 2's scoring without touching their file
+
+Uploaded messages must be scored by exactly Person 2's rules, or the dashboard
+would compare incomparable numbers. But `models/burnout/burnout_score.py` is a
+script: importing it executes top-level code that **overwrites
+`outputs/burnout_scores.csv`**.
+
+`backend/ingest/pipeline_runner.py` therefore parses that file with `ast`, keeps
+only the `FunctionDef` nodes, and executes them in an isolated namespace. Their
+real scoring rule is reused, their file is untouched, and nothing is read or
+written. `tests/test_ingest.py` hashes their CSV before and after to prove it.
+
+Uploads are indexed tagged `source_type: "upload"` and are **never** written
+into `outputs/burnout_scores.csv`. `POST /refresh` clears them, because refresh
+means "re-sync with the ML pipeline".
+
+**Extra setup for OCR** — pip cannot install the Tesseract engine:
+
+```bash
+brew install tesseract          # macOS
+sudo apt install tesseract-ocr  # Ubuntu
+```
+
+OCR is imperfect (`I` is often read as `|`), so every OCR-derived upload carries
+a visible accuracy warning in the dashboard rather than a footnote.
+
+---
+
+## Quantum machine learning — comparative study
+
+```bash
+pip install -r quantum/requirements.txt
+python quantum/benchmark.py --samples 1500 --epochs 40 --kernel-rows 400
+python quantum/benchmark.py --sweep
+```
+
+**The research question is not "is quantum better".** On a simulator at this
+scale it will not be. The contribution is a controlled comparison: same
+features, same split, same seed, classical versus quantum, honestly reported.
+
+### Design
+
+Trained on `datasets/processed/employee_burnout_clean.csv` (22,750 rows) to
+predict **`Burn Rate`** — a real value from human survey responses.
+
+**Not** `risk_level` from Person 2's output. That column is produced by a
+deterministic rule over its own inputs, so any classifier trained on it merely
+relearns the rule at ~100% accuracy and proves nothing.
+
+After encoding there are exactly **six features → six qubits, no PCA**. Both
+model families therefore see identical inputs, so accuracy differences are
+attributable to the classifier rather than to preprocessing.
+
+### Results (MacBook Air M2, Python 3.14)
+
+| Model | Framework | Acc | F1 | AUC | Train |
+|---|---|---|---|---|---|
+| Majority baseline | sklearn | 0.5813 | 0.4274 | 0.500 | 0.000s |
+| **Logistic Regression** | sklearn | **0.8667** | 0.8667 | 0.9215 | 0.024s |
+| SVM (RBF) | sklearn | 0.8587 | 0.8586 | 0.9171 | 0.045s |
+| Random Forest | sklearn | 0.8533 | 0.8534 | 0.9132 | 0.169s |
+| SVM-RBF *(same 400 rows)* | sklearn | 0.8560 | 0.8551 | 0.9060 | 0.008s |
+| VQC | pennylane | 0.7067 | 0.7006 | 0.6916 | 17.4s |
+| Quantum kernel SVM | pennylane | 0.8560 | 0.8557 | 0.9065 | 0.669s |
+| VQC | qiskit | 0.7227 | 0.7084 | — | 292.2s |
+| Quantum kernel SVM | qiskit | 0.8533 | 0.8514 | — | 123.6s |
+
+### Findings
+
+**1. The quantum kernel exactly matches its classical counterpart.** 0.8560 for
+both the quantum kernel and SVM-RBF trained on the *same 400 rows* — identical
+to four decimal places, at 84× the cost (15,445× for Qiskit). The row-matched
+control rules out data volume as the explanation. The quantum kernel is a
+legitimate kernel; it is not an advantage.
+
+**2. Cross-framework agreement validates the implementation.** PennyLane 0.8560
+vs Qiskit 0.8533 (0.27% apart) on the kernel method; 0.7067 vs 0.7227 (1.60%)
+on the VQC. Two independent libraries, one shared circuit specification. A
+single implementation would give a number with nothing to check it against.
+
+**3. Logistic regression wins outright**, so the task is largely linearly
+separable and no expressive classifier was required.
+
+**4. VQC underperformed everything** except the majority baseline, with loss
+plateauing around 0.84 — consistent with a shallow 24-parameter circuit on a
+problem a linear model already solves.
+
+Figures: `outputs/quantum/comparison.png` (all nine models, log-scale timing)
+and `outputs/quantum/controlled_comparison.png` (the row-matched headline).
+
+### Caveats to state in any write-up
+
+- Simulator only. No noise model, so results are an optimistic upper bound.
+- Quantum kernels are O(n²), verified empirically: 100 rows → 5.2s, 150 →
+  10.8s, 200 → 21.6s before batching. Hence the 400-row cap.
+- `Mental Fatigue Score` correlates 0.825 with `Burn Rate` — close to a proxy
+  for the target, which is why every model clusters near 86%.
+- Barren plateaus limit circuit depth; `circuits.py` warns above 10 qubits × 4
+  layers.
 
 ---
 
@@ -319,6 +467,13 @@ Stop Ollama, then re-run the `/query` call. Expect **HTTP 200**, not 500, with
 is the single most valuable test in the list: it is the failure your demo is
 most likely to hit.
 
+### 6b. Automated tests
+
+```bash
+pytest                    # 151 tests
+pytest -m "not slow"      # fast subset, ~1s — good for a pre-commit hook
+```
+
 ### 7. Dashboard
 
 ```bash
@@ -329,6 +484,7 @@ Screenshots worth capturing for a report:
 
 | # | View | Shows |
 |---|---|---|
+| 0 | Upload Communication | A PDF or chat screenshot analysed into per-message scores |
 | 1 | Top of dashboard | Four metric cards + Overall Burnout gauge at 10% "Healthy" |
 | 2 | Chart grid | Sentiment pie (6 Neg / 4 Pos), emotion bar (joy 3, trust 2), risk bars (Low 9, Medium 1, High 0) |
 | 3 | Score histogram + scatter | Threshold lines at Medium ≥3 and High ≥6 |
@@ -359,6 +515,11 @@ index and a live FastAPI server. Bugs found and fixed this way:
 | Missing columns not materialised | `AttributeError` on `sentence_count` |
 | `idxmax` on all-zero emotion rows | 6 of 10 records mislabelled **"anger"** instead of "neutral" |
 | Unescaped `<`, `>`, `&` in ReportLab | A message containing `&` would fail the whole PDF |
+| `chromadb.list_collections()` returns objects on 1.x, strings on 0.6.x | Silent "0 records" after a successful write |
+| 12-char minimum message length | Dropped "not ok", "I'm done" — the strongest burnout signals |
+| VQC evaluated one sample per circuit call | 30s/epoch instead of 0.4s (~75x) |
+| Benchmark printed results before saving them | A segfault on Python 3.14 lost a 12-minute run |
+| `.gitignore` force-included a 2.1 GB CSV | `git push` rejected — GitHub caps files at 100 MB |
 
 ---
 
