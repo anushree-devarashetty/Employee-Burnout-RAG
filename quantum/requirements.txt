@@ -1,0 +1,53 @@
+# ==============================================================================
+# Quantum ML comparative study — dependencies
+# ------------------------------------------------------------------------------
+# Install (from the repository root, in the same venv as the rest):
+#     pip install -r quantum/requirements.txt
+#
+# Kept separate from backend/ and frontend/ because these are heavy and are
+# needed ONLY to reproduce the benchmark. The API and dashboard run without a
+# single one of them — the quantum module writes its results to
+# outputs/quantum/ and the backend reads that CSV if present.
+#
+# Everything here runs on a SIMULATOR. No quantum hardware, no cloud account
+# and no API token is required.
+# ==============================================================================
+
+# --- Quantum frameworks -------------------------------------------------------
+# Both are installed because the study implements the same circuit twice and
+# compares them. Agreement between two independent libraries is what validates
+# the implementation; a single framework gives a number with nothing to check
+# it against.
+
+# PennyLane — hybrid quantum-classical ML, autodiff integrates with PyTorch.
+pennylane>=0.38
+
+# Qiskit — IBM's framework. qiskit-machine-learning 0.9.x requires Qiskit 2.x
+# and Python >= 3.10, and provides the ready-made VQC and QSVC classes.
+qiskit>=2.0
+qiskit-machine-learning>=0.9.1
+
+# --- Classical baselines and preprocessing ------------------------------------
+# Not optional. A quantum accuracy figure with nothing to compare it against is
+# unfalsifiable, and "compared to what?" is the first question any examiner asks.
+scikit-learn>=1.4
+
+# --- Data ---------------------------------------------------------------------
+pandas>=2.0
+numpy>=1.24,<3.0
+
+# --- Charts -------------------------------------------------------------------
+# Used by benchmark.py for outputs/quantum/comparison.png. The benchmark
+# degrades gracefully and skips the chart if this is absent.
+matplotlib>=3.7
+
+# --- Remote execution on Qniverse (OPTIONAL) ----------------------------------
+# C-DAC's national quantum platform. Needed ONLY by quantum/run_qniverse.py,
+# which submits the fidelity kernel to a remote simulator and compares it
+# against the local analytic result.
+#
+# Deliberately NOT installed by default: every other part of this project,
+# including the full local benchmark, runs without it. Install with
+#     pip install qniverse
+# and set QNIVERSE_TOKEN in .env.
+# qniverse>=1.0

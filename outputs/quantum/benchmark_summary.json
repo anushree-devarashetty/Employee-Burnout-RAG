@@ -1,0 +1,165 @@
+{
+  "data": {
+    "source_rows": 22750,
+    "sampled_rows": 600,
+    "train_size": 450,
+    "test_size": 150,
+    "n_features": 6,
+    "n_qubits": 6,
+    "features": [
+      "Gender",
+      "Company Type",
+      "WFH Setup Available",
+      "Designation",
+      "Resource Allocation",
+      "Mental Fatigue Score"
+    ],
+    "target_mode": "binary",
+    "classes": [
+      "Not at risk",
+      "At risk"
+    ],
+    "class_balance_train": {
+      "Not at risk": 262,
+      "At risk": 188
+    },
+    "class_balance_test": {
+      "Not at risk": 87,
+      "At risk": 63
+    },
+    "pca_applied": false,
+    "pca_explained_variance": null,
+    "warnings": [
+      "Subsampled 600 of 22750 rows. Quantum kernel methods require O(n^2) circuit evaluations, so the full dataset is not tractable on a simulator. Sampling is stratified, so the class balance is preserved."
+    ]
+  },
+  "circuit": {
+    "n_qubits": 6,
+    "n_layers": 2,
+    "feature_map": "angle",
+    "ansatz": "basic",
+    "entanglement": "ring",
+    "n_parameters": 24,
+    "estimated_depth": 5,
+    "hilbert_space_dimension": 64
+  },
+  "environment": {
+    "python": "3.10.12",
+    "platform": "Linux-6.8.0-136-generic-aarch64-with-glibc2.35",
+    "processor": "aarch64",
+    "numpy": "2.2.6",
+    "scikit-learn": "1.7.2",
+    "pennylane": "0.42.3",
+    "qiskit": "2.5.2",
+    "qiskit-machine-learning": "0.9.1"
+  },
+  "kernel_max_train": 150,
+  "total_seconds": 6.29,
+  "results": [
+    {
+      "model": "Majority baseline",
+      "family": "classical",
+      "framework": "scikit-learn",
+      "accuracy": 0.58,
+      "f1": 0.4258,
+      "precision": 0.3364,
+      "recall": 0.58,
+      "roc_auc": 0.5,
+      "train_seconds": 0.0,
+      "predict_seconds": 0.0,
+      "n_parameters": "",
+      "failed": false,
+      "error": ""
+    },
+    {
+      "model": "Logistic Regression",
+      "family": "classical",
+      "framework": "scikit-learn",
+      "accuracy": 0.8667,
+      "f1": 0.8663,
+      "precision": 0.8663,
+      "recall": 0.8667,
+      "roc_auc": 0.9325,
+      "train_seconds": 0.007,
+      "predict_seconds": 0.0,
+      "n_parameters": 7,
+      "failed": false,
+      "error": ""
+    },
+    {
+      "model": "SVM (RBF kernel)",
+      "family": "classical",
+      "framework": "scikit-learn",
+      "accuracy": 0.84,
+      "f1": 0.84,
+      "precision": 0.84,
+      "recall": 0.84,
+      "roc_auc": 0.9219,
+      "train_seconds": 0.007,
+      "predict_seconds": 0.003,
+      "n_parameters": "",
+      "failed": false,
+      "error": ""
+    },
+    {
+      "model": "Random Forest",
+      "family": "classical",
+      "framework": "scikit-learn",
+      "accuracy": 0.8733,
+      "f1": 0.8737,
+      "precision": 0.8748,
+      "recall": 0.8733,
+      "roc_auc": 0.9264,
+      "train_seconds": 0.201,
+      "predict_seconds": 0.024,
+      "n_parameters": "",
+      "failed": false,
+      "error": ""
+    },
+    {
+      "model": "SVM-RBF (same 150 rows)",
+      "family": "classical",
+      "framework": "scikit-learn",
+      "accuracy": 0.84,
+      "f1": 0.8406,
+      "precision": 0.8424,
+      "recall": 0.84,
+      "roc_auc": 0.902,
+      "train_seconds": 0.001,
+      "predict_seconds": 0.0,
+      "n_parameters": "",
+      "failed": false,
+      "error": ""
+    },
+    {
+      "model": "VQC (variational)",
+      "family": "quantum",
+      "framework": "pennylane",
+      "accuracy": 0.62,
+      "f1": 0.6094,
+      "precision": 0.6115,
+      "recall": 0.62,
+      "roc_auc": 0.6915,
+      "train_seconds": 2.989,
+      "predict_seconds": 0.009,
+      "n_parameters": 24,
+      "failed": false,
+      "error": ""
+    },
+    {
+      "model": "Quantum kernel SVM",
+      "family": "quantum",
+      "framework": "pennylane",
+      "accuracy": 0.84,
+      "f1": 0.8406,
+      "precision": 0.8424,
+      "recall": 0.84,
+      "roc_auc": 0.8893,
+      "train_seconds": 0.258,
+      "predict_seconds": 1.423,
+      "n_parameters": "",
+      "failed": false,
+      "error": ""
+    }
+  ]
+}

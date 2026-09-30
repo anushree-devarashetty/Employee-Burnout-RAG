@@ -1,0 +1,11 @@
+{
+  "dry_run": true,
+  "planned_jobs": 189,
+  "jobs_submitted": 0,
+  "jobs_planned": 189,
+  "cache_hits": 0,
+  "cached_total": 0,
+  "accounts_configured": 4,
+  "accounts_exhausted": 0,
+  "jobs_per_account": {}
+}
