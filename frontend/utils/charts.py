@@ -45,40 +45,142 @@ if __package__ in (None, ""):  # pragma: no cover - script-mode only
 import pandas as pd
 import plotly.graph_objects as go
 
-from frontend.utils.data_utils import (
-    RISK_COLOURS,
-    RISK_ORDER,
-    SENTIMENT_COLOURS,
-    gauge_band,
-    risk_colour,
-    sentiment_colour,
-)
+from frontend.utils.data_utils import RISK_ORDER, gauge_band
+
+# Chart colours come from the THEME, not from data_utils.
+#
+# data_utils holds the light palette, which is correct for the PDF report —
+# that always prints on white paper. On screen the palette must follow the
+# active theme, because a colour tuned for white vibrates against a dark
+# surface. Two consumers, two requirements, one deliberate split.
+from frontend.utils import theme as _theme
+
+
+def risk_colour(level: str) -> str:
+    """Risk colour for the ACTIVE theme."""
+    return _theme.RISK.get(str(level).title(), _theme.RISK["Unknown"])
+
+
+def sentiment_colour(label: str) -> str:
+    """Sentiment colour for the ACTIVE theme."""
+    return _theme.SENTIMENT.get(str(label).title(), _theme.SENTIMENT["Unknown"])
+
+
+RISK_COLOURS = _theme.RISK
+SENTIMENT_COLOURS = _theme.SENTIMENT
 
 #: Applied to every figure so panels align on the dashboard grid.
+#
+# `template="none"` rather than "plotly_white": a fixed white template paints an
+# opaque white canvas, which sits as a glaring block inside a dark-mode page.
+# With no template the figure background stays transparent and inherits the
+# surrounding surface, so one chart definition works in both Streamlit themes.
+#
+# Colours here are chosen to read acceptably on either background: mid-tone
+# greys for structure, saturated hues only for data.
+def _is_dark() -> bool:
+    """Whether Streamlit is rendering dark, read from its own setting."""
+    try:
+        from frontend.utils.theme import active_is_dark
+
+        return active_is_dark()
+    except Exception:
+        return False
+
+
+_DARK = _is_dark()
+
+# Axis and label colours have to differ per theme. A single mid-grey that reads
+# well on white is too dim against a dark surface — legible in a screenshot,
+# unreadable on a projector.
+_GRID = "rgba(150,168,186,0.16)" if _DARK else "rgba(120,138,156,0.20)"
+_AXIS = "rgba(150,168,186,0.34)" if _DARK else "rgba(120,138,156,0.45)"
+_TEXT = "#B6C4D2" if _DARK else "#5A6B7B"
+_TITLE = "#E6EDF5" if _DARK else "#0E1723"
+
+# Paired charts share a height so the two columns of each row line up. Left
+# and right at different heights leaves a ragged edge that reads as broken
+# layout even when nothing is wrong.
+#
+#   row 1  gauge | sentiment pie          -> H_TALL
+#   row 2  emotion | risk distribution    -> H_STD
+#   row 3  risk donut | score histogram   -> H_STD
+#   row 4  scatter (full width)           -> H_WIDE
+H_TALL, H_STD, H_WIDE = 420, 380, 400
+
 _LAYOUT = dict(
-    template="plotly_white",
-    margin=dict(l=40, r=40, t=60, b=40),
-    font=dict(family="system-ui, -apple-system, Segoe UI, sans-serif", size=13),
-    hoverlabel=dict(font_size=13),
+    template="none",
+    margin=dict(l=48, r=32, t=64, b=44),
+    font=dict(
+        family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
+        size=13.5,
+        color=_TEXT,
+    ),
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(0,0,0,0)",
+    hoverlabel=dict(
+        font_size=13,
+        font_family="-apple-system, system-ui, sans-serif",
+        bgcolor="rgba(30,38,48,0.94)",
+        bordercolor="rgba(128,145,162,0.4)",
+        font=dict(color="#F0F3F6"),
+    ),
+    xaxis=dict(gridcolor=_GRID, zerolinecolor=_AXIS, linecolor=_AXIS,
+               tickfont=dict(size=12)),
+    yaxis=dict(gridcolor=_GRID, zerolinecolor=_AXIS, linecolor=_AXIS,
+               tickfont=dict(size=12)),
+    legend=dict(font=dict(size=12)),
 )
 
 
-def _empty_figure(message: str, height: int = 300) -> go.Figure:
+def _finish(figure: go.Figure, height: int, **overrides) -> go.Figure:
+    """Apply the shared layout, then per-chart overrides.
+
+    `update_layout(**_LAYOUT, title=...)` raises `got multiple values for
+    keyword argument` as soon as the shared layout defines a key a chart also
+    sets. Merging into one dict — with nested dicts merged rather than replaced,
+    so a chart overriding `xaxis.title` does not silently discard the shared
+    grid colour — keeps one source of truth for styling.
+    """
+    layout = {k: (dict(v) if isinstance(v, dict) else v) for k, v in _LAYOUT.items()}
+
+    # TITLE STYLING IS APPLIED ONLY WHEN THERE IS A TITLE.
+    #
+    # Previously the shared layout carried a `title` dict holding font and
+    # position but no `text`. Plotly then rendered the literal string
+    # "undefined" above every chart that did not set its own title — which was
+    # visible above the gauge. Styling now attaches to the caller's title
+    # instead of existing on its own.
+    if isinstance(overrides.get("title"), dict) and overrides["title"].get("text"):
+        overrides["title"] = {
+            "font": {"size": 17, "color": _TITLE},
+            "x": 0.01, "xanchor": "left", "y": 0.97, "yanchor": "top",
+            **overrides["title"],
+        }
+    for key, value in overrides.items():
+        if isinstance(value, dict) and isinstance(layout.get(key), dict):
+            layout[key] = {**layout[key], **value}
+        else:
+            layout[key] = value
+    layout["height"] = height
+    # autosize=False with an explicit height stops Plotly re-measuring after
+    # Streamlit has already sized the container, which is what produced a
+    # scrollbar inside the chart frame.
+    layout["autosize"] = False
+    figure.update_layout(**layout)
+    return figure
+
+
+def _empty_figure(message: str, height: int = H_STD) -> go.Figure:
     """A figure that explains why it is empty, instead of a blank rectangle."""
     figure = go.Figure()
     figure.add_annotation(
         text=message,
         showarrow=False,
-        font=dict(size=14, color="#6B7280"),
+        font=dict(size=14.5, color=_TEXT),
         xref="paper", yref="paper", x=0.5, y=0.5,
     )
-    figure.update_layout(
-        **_LAYOUT,
-        height=height,
-        xaxis=dict(visible=False),
-        yaxis=dict(visible=False),
-    )
-    return figure
+    return _finish(figure, height, xaxis=dict(visible=False), yaxis=dict(visible=False))
 
 
 # ==============================================================================
@@ -87,7 +189,7 @@ def _empty_figure(message: str, height: int = 300) -> go.Figure:
 def burnout_gauge(
     percent: float,
     mean_percent: Optional[float] = None,
-    height: int = 320,
+    height: int = H_TALL,
 ) -> go.Figure:
     """Headline gauge: share of records at Medium or High risk.
 
@@ -105,52 +207,63 @@ def burnout_gauge(
 
     figure = go.Figure(
         go.Indicator(
-            mode="gauge+number+delta" if mean_percent is not None else "gauge+number",
+            # No delta. "▼−0.8" against the mean normalised score invited the
+            # reading "burnout fell by 0.8", which is wrong — it is the gap
+            # between two different measures, not a change over time. The mean
+            # is reported as plain text beneath the chart instead.
+            mode="gauge+number",
             value=percent,
-            number={"suffix": "%", "font": {"size": 44}},
-            delta=(
-                {
-                    "reference": float(mean_percent),
-                    "increasing": {"color": RISK_COLOURS["High"]},
-                    "decreasing": {"color": RISK_COLOURS["Low"]},
-                    "valueformat": ".1f",
-                }
-                if mean_percent is not None
-                else None
-            ),
+            number={"suffix": "%", "font": {"size": 46, "color": _TITLE}},
+            # TWO title lines, not three.
+            #
+            # Plotly renders an Indicator's title INSIDE the plot area rather
+            # than in the margin, so every extra <br> pushes the whole gauge
+            # down. A three-line title at the previous height clipped the top
+            # line off entirely. The explanatory sentence now lives as a
+            # caption beneath the chart in app.py, where it does not compete
+            # with the gauge for vertical space.
             title={
                 "text": f"<b>Overall Burnout</b><br>"
-                        f"<span style='font-size:0.85em;color:{colour}'>{label}</span>"
-                        f"<br><span style='font-size:0.7em;color:#6B7280'>"
-                        f"share of records at Medium or High risk</span>",
-                "font": {"size": 16},
+                        f"<span style='font-size:0.75em;color:{colour}'>{label}</span>",
+                "font": {"size": 17, "color": _TITLE},
             },
             gauge={
-                "axis": {"range": [0, 100], "ticksuffix": "%"},
-                "bar": {"color": colour, "thickness": 0.72},
+                "axis": {"range": [0, 100], "ticksuffix": "%",
+                         "tickfont": {"size": 11},
+                         "tickcolor": _AXIS},
+                "bar": {"color": colour, "thickness": 0.62},
                 "borderwidth": 0,
+                "bgcolor": "rgba(0,0,0,0)",
+                # Translucent bands, not opaque pastels: solid light fills
+                # look like white blocks on a dark page. rgba lets the page
+                # surface show through in either theme.
+                # Very low alpha. At 0.14-0.15 the amber and red bands mixed
+                # with the dark page into a muddy brown that read as dirt
+                # rather than as a scale.
                 "steps": [
-                    {"range": [0, 15], "color": "#EAF6EE"},
-                    {"range": [15, 33], "color": "#FBF6DC"},
-                    {"range": [33, 60], "color": "#FDF0DC"},
-                    {"range": [60, 100], "color": "#FBE3E3"},
+                    {"range": [0, 15], "color": "rgba(46,158,91,0.07)"},
+                    {"range": [15, 33], "color": "rgba(217,196,65,0.07)"},
+                    {"range": [33, 60], "color": "rgba(232,163,61,0.07)"},
+                    {"range": [60, 100], "color": "rgba(214,69,69,0.07)"},
                 ],
                 "threshold": {
-                    "line": {"color": RISK_COLOURS["Medium"], "width": 3},
-                    "thickness": 0.8,
+                    "line": {"color": RISK_COLOURS["Medium"], "width": 2},
+                    "thickness": 0.75,
                     "value": 33,
                 },
             },
         )
     )
-    figure.update_layout(**_LAYOUT, height=height)
-    return figure
+    # Override the shared top margin. The Indicator's title plus its large
+    # number need materially more headroom than a normal chart title, and the
+    # shared t=60 was what cropped the heading.
+    return _finish(figure, height, margin=dict(l=40, r=40, t=100, b=30))
 
 
 # ==============================================================================
 # Pie — Sentiment distribution
 # ==============================================================================
-def sentiment_pie(distribution: Dict[str, int], height: int = 340) -> go.Figure:
+def sentiment_pie(distribution: Dict[str, int], height: int = H_TALL) -> go.Figure:
     """Sentiment mix from Person 2's RoBERTa classifier."""
     data = {k: v for k, v in (distribution or {}).items() if v}
     if not data:
@@ -163,7 +276,7 @@ def sentiment_pie(distribution: Dict[str, int], height: int = 340) -> go.Figure:
             values=list(data.values()),
             marker=dict(
                 colors=[sentiment_colour(label) for label in labels],
-                line=dict(color="#FFFFFF", width=2),
+                line=dict(color="rgba(128,145,162,0.35)", width=1.5),
             ),
             # Label + percentage + count directly on each slice, so the chart
             # is readable without relying on colour or the legend.
@@ -175,21 +288,13 @@ def sentiment_pie(distribution: Dict[str, int], height: int = 340) -> go.Figure:
             sort=False,
         )
     )
-    figure.update_layout(
-        **_LAYOUT,
-        height=height,
-        title="Sentiment Distribution",
-        showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=-0.15, x=0.5,
-                    xanchor="center"),
-    )
-    return figure
+    return _finish(figure, height, title=dict(text="Sentiment Distribution"), showlegend=True, legend=dict(orientation="h", yanchor="top", y=-0.02, x=0.5, xanchor="center"))
 
 
 # ==============================================================================
 # Bar — Emotion distribution
 # ==============================================================================
-def emotion_bar(totals: Dict[str, float], height: int = 340) -> go.Figure:
+def emotion_bar(totals: Dict[str, float], height: int = H_STD) -> go.Figure:
     """NRC emotion word counts across all records.
 
     Horizontal bars because the eight category names are long enough to
@@ -221,28 +326,20 @@ def emotion_bar(totals: Dict[str, float], height: int = 340) -> go.Figure:
             x=values,
             y=names,
             orientation="h",
-            marker=dict(color=colours),
+            marker=dict(color=colours, line=dict(width=0)),
             text=[f"{v:g}" for v in values],
             textposition="outside",
             hovertemplate="<b>%{y}</b><br>%{x:g} word matches<extra></extra>",
         )
     )
-    figure.update_layout(
-        **_LAYOUT,
-        height=height,
-        title="Emotion Distribution (NRC lexicon word counts)",
-        xaxis_title="Word matches",
-        yaxis_title=None,
-        showlegend=False,
-    )
-    return figure
+    return _finish(figure, height, title=dict(text="Emotion Distribution (NRC lexicon word counts)"), xaxis_title=dict(text="Word matches"), yaxis_title=None, showlegend=False)
 
 
 # ==============================================================================
 # Bar — Risk level distribution
 # ==============================================================================
 def risk_distribution_bar(
-    distribution: Dict[str, int], height: int = 340
+    distribution: Dict[str, int], height: int = H_STD
 ) -> go.Figure:
     """Record counts per risk level.
 
@@ -270,19 +367,10 @@ def risk_distribution_bar(
             hovertemplate="<b>%{x} risk</b><br>%{y} records<extra></extra>",
         )
     )
-    figure.update_layout(
-        **_LAYOUT,
-        height=height,
-        title="Risk Level Distribution",
-        xaxis_title=None,
-        yaxis_title="Records",
-        showlegend=False,
-        yaxis=dict(rangemode="tozero"),
-    )
-    return figure
+    return _finish(figure, height, title=dict(text="Risk Level Distribution"), xaxis_title=None, yaxis_title=dict(text="Records"), showlegend=False, yaxis=dict(rangemode="tozero"))
 
 
-def risk_donut(distribution: Dict[str, int], height: int = 340) -> go.Figure:
+def risk_donut(distribution: Dict[str, int], height: int = H_STD) -> go.Figure:
     """Risk mix as proportions, complementing the count bar chart."""
     data = {k: v for k, v in (distribution or {}).items() if v}
     if not data:
@@ -297,7 +385,7 @@ def risk_donut(distribution: Dict[str, int], height: int = 340) -> go.Figure:
             values=[data[label] for label in labels],
             marker=dict(
                 colors=[risk_colour(label) for label in labels],
-                line=dict(color="#FFFFFF", width=2),
+                line=dict(color="rgba(128,145,162,0.35)", width=1.5),
             ),
             hole=0.55,
             textinfo="label+percent",
@@ -306,16 +394,13 @@ def risk_donut(distribution: Dict[str, int], height: int = 340) -> go.Figure:
             sort=False,
         )
     )
-    figure.update_layout(
-        **_LAYOUT, height=height, title="Risk Mix", showlegend=False
-    )
-    return figure
+    return _finish(figure, height, title=dict(text="Risk Mix"), showlegend=False)
 
 
 # ==============================================================================
 # Histogram — score spread
 # ==============================================================================
-def score_histogram(frame: pd.DataFrame, height: int = 320) -> go.Figure:
+def score_histogram(frame: pd.DataFrame, height: int = H_STD) -> go.Figure:
     """Distribution of raw burnout scores.
 
     Reveals shape the summary statistics hide: whether risk is concentrated in
@@ -328,7 +413,7 @@ def score_histogram(frame: pd.DataFrame, height: int = 320) -> go.Figure:
     figure = go.Figure(
         go.Histogram(
             x=frame["burnout_score"],
-            marker=dict(color="#4C78A8", line=dict(color="#FFFFFF", width=1)),
+            marker=dict(color="#4C78A8", line=dict(color="rgba(128,145,162,0.3)", width=1)),
             xbins=dict(size=1),
             hovertemplate="Score %{x}<br>%{y} records<extra></extra>",
         )
@@ -343,22 +428,13 @@ def score_histogram(frame: pd.DataFrame, height: int = 320) -> go.Figure:
         x=5.5, line_dash="dash", line_color=RISK_COLOURS["High"],
         annotation_text="High ≥6", annotation_position="top",
     )
-    figure.update_layout(
-        **_LAYOUT,
-        height=height,
-        title="Burnout Score Distribution",
-        xaxis_title="Burnout score (raw points)",
-        yaxis_title="Records",
-        bargap=0.08,
-        showlegend=False,
-    )
-    return figure
+    return _finish(figure, height, title=dict(text="Burnout Score Distribution"), xaxis_title=dict(text="Burnout score (raw points)"), yaxis_title=dict(text="Records"), bargap=0.08, showlegend=False)
 
 
 # ==============================================================================
 # Scatter — score vs model confidence
 # ==============================================================================
-def employee_risk_scatter(frame: pd.DataFrame, height: int = 360) -> go.Figure:
+def employee_risk_scatter(frame: pd.DataFrame, height: int = H_WIDE) -> go.Figure:
     """Burnout score against sentiment-model confidence, coloured by risk.
 
     Surfaces a caveat the other charts cannot: a high score resting on a
@@ -385,7 +461,7 @@ def employee_risk_scatter(frame: pd.DataFrame, height: int = 360) -> go.Figure:
                 name=f"{level} risk",
                 marker=dict(
                     size=14, color=risk_colour(level),
-                    line=dict(color="#FFFFFF", width=1.5), opacity=0.85,
+                    line=dict(color="rgba(128,145,162,0.5)", width=1.5), opacity=0.9,
                 ),
                 customdata=subset[["employee_id", "clean_text"]].values,
                 hovertemplate=(
@@ -396,16 +472,21 @@ def employee_risk_scatter(frame: pd.DataFrame, height: int = 360) -> go.Figure:
             )
         )
 
-    figure.update_layout(
-        **_LAYOUT,
-        height=height,
-        title="Burnout Score vs Sentiment Confidence",
-        xaxis_title="Burnout score (raw points)",
-        yaxis_title="Sentiment model confidence (%)",
-        legend=dict(orientation="h", yanchor="bottom", y=-0.25, x=0.5,
-                    xanchor="center"),
+    # Legend ABOVE the plot, not below.
+    #
+    # A horizontal legend at y=-0.25 sits in exactly the same band as the
+    # x-axis title; in the rendered dashboard the two overlapped into
+    # unreadable mush. Moving it to the top-right clears the axis entirely and
+    # uses the empty space beside the chart title.
+    return _finish(
+        figure, height,
+        title=dict(text="Burnout Score vs Sentiment Confidence"),
+        xaxis_title=dict(text="Burnout score (raw points)"),
+        yaxis_title=dict(text="Sentiment model confidence (%)"),
+        margin=dict(l=64, r=32, t=84, b=66),
+        legend=dict(orientation="h", yanchor="bottom", y=1.03,
+                    x=1, xanchor="right"),
     )
-    return figure
 
 
 __all__ = [

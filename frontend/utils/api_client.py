@@ -233,6 +233,59 @@ class BurnoutAPIClient:
             payload["focus"] = focus
         return self._request("POST", "/report", payload=payload)
 
+    def ingest(
+        self,
+        file_bytes: bytes,
+        filename: str,
+        index: bool = True,
+        id_prefix: str = "DOC",
+    ) -> APIResult:
+        """``POST /ingest`` — upload a PDF or image for analysis.
+
+        Sent as multipart/form-data rather than JSON, because base64-encoding a
+        25 MB PDF into a JSON body inflates it by a third and forces the whole
+        payload into memory on both sides.
+
+        Given a generous timeout: the first upload loads a ~500 MB sentiment
+        model, and OCR on a multi-page scan is genuinely slow.
+        """
+        url = f"{self.base_url}/ingest"
+        try:
+            response = self._session.post(
+                url,
+                files={"file": (filename, file_bytes)},
+                params={"index": str(index).lower(), "id_prefix": id_prefix},
+                timeout=max(self.timeout, 300),
+            )
+        except requests.exceptions.ConnectionError:
+            return APIResult(
+                ok=False,
+                error=f"Cannot reach the backend at {self.base_url}.",
+                hint="Start it:  uvicorn backend.app:app --reload --port 8000",
+            )
+        except requests.exceptions.Timeout:
+            return APIResult(
+                ok=False,
+                error="The document took too long to analyse.",
+                hint=(
+                    "The first upload downloads the sentiment model (~500MB). "
+                    "Try again once it is cached, or upload a shorter document."
+                ),
+            )
+        except requests.exceptions.RequestException as exc:
+            return APIResult(ok=False, error=f"Upload failed: {exc}")
+
+        if response.status_code >= 400:
+            return self._translate_error(response)
+
+        try:
+            return APIResult(ok=True, data=response.json(),
+                             status_code=response.status_code)
+        except ValueError:
+            return APIResult(
+                ok=False, error="The backend returned a non-JSON response."
+            )
+
     def refresh(self, force: bool = True) -> APIResult:
         """``POST /refresh`` — rebuild the vector store."""
         return self._request(

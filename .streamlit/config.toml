@@ -1,0 +1,43 @@
+# ==============================================================================
+# Streamlit base theme
+# ------------------------------------------------------------------------------
+# Sets the foundation that frontend/utils/theme.py builds on. Without this,
+# Streamlit picks up the viewer's OS preference and the accent colour changes
+# from machine to machine — which is fine for a hobby app and wrong for a
+# dashboard being demonstrated.
+#
+# `base` is the single switch. theme.py READS this value via
+# st.get_option("theme.base") and emits the matching palette, so the panels can
+# never disagree with Streamlit's own chrome. Change it here and the whole
+# dashboard follows — charts, cards, callouts and pills included.
+#
+# Set to "light" for projector demos, where dark themes wash out badly.
+# ==============================================================================
+
+[theme]
+base = "dark"
+
+# Deep slate blue. Used for buttons, focus rings and selection — the one
+# accent colour in the interface. Green/amber/red are reserved exclusively
+# for risk levels, so colour always carries a single meaning.
+primaryColor = "#7FB2E5"
+
+# Not pure black. #0F141A avoids the halation that #000 causes against light
+# text, and text is #E6EDF5 rather than #FFF for the same reason — maximum
+# contrast is not maximum legibility.
+backgroundColor = "#0F141A"
+secondaryBackgroundColor = "#161D26"
+textColor = "#E6EDF5"
+
+# System font stack: renders natively on macOS, Windows and Linux without a
+# webfont download, which also keeps the dashboard usable offline.
+font = "sans serif"
+
+[server]
+# Uploaded PDFs and screenshots. Matches MAX_UPLOAD_BYTES in
+# backend/ingest/extractors.py — a mismatch would let Streamlit accept a file
+# the API then rejects, which is a confusing failure.
+maxUploadSize = 25
+
+[browser]
+gatherUsageStats = false

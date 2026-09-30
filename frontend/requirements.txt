@@ -17,7 +17,12 @@
 # ==============================================================================
 
 # --- Dashboard ----------------------------------------------------------------
-streamlit>=1.33
+# >=1.60 required: the dashboard uses `width="stretch"`, which replaced
+# `use_container_width`. That parameter is deprecated and removed after
+# 2025-12-31, so the newer API is used rather than leaving a known expiry in
+# the code. Pinning the floor here means an older install fails at pip time
+# with a clear message, instead of at runtime with a TypeError on every chart.
+streamlit>=1.60
 
 # --- Charts -------------------------------------------------------------------
 plotly>=5.20

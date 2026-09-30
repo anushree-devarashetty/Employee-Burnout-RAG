@@ -68,6 +68,7 @@ from frontend.utils.data_utils import (
     top_high_risk,
 )
 from frontend.utils.pdf_report import build_filename, build_pdf
+from frontend.utils import theme
 
 APP_TITLE = "Explainable Employee Burnout Detection using AI + RAG"
 
@@ -78,25 +79,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-st.markdown(
-    """
-    <style>
-      .block-container { padding-top: 2.2rem; padding-bottom: 3rem; }
-      div[data-testid="stMetricValue"] { font-size: 1.6rem; }
-      .caveat {
-        background:#F4F6F9; border-left:4px solid #E8A33D;
-        padding:0.85rem 1rem; border-radius:4px; font-size:0.9rem;
-        line-height:1.5; margin:0.5rem 0 1rem 0;
-      }
-      .degraded {
-        background:#FBE3E3; border-left:4px solid #D64545;
-        padding:0.85rem 1rem; border-radius:4px; font-size:0.9rem;
-        margin:0.5rem 0 1rem 0;
-      }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+st.markdown(theme.css(), unsafe_allow_html=True)
 
 
 # ==============================================================================
@@ -107,6 +90,7 @@ for key, default in (
     ("report_payload", None),
     ("last_question", ""),
     ("force_reload", False),
+    ("uploads", None),
 ):
     st.session_state.setdefault(key, default)
 
@@ -130,27 +114,17 @@ def _cached_records(nonce: int):
 # ==============================================================================
 def render_sidebar(frame: pd.DataFrame | None):
     """Sidebar controls. Returns the filter selections."""
-    st.sidebar.title("Controls")
-
-    # --- backend status ---------------------------------------------------
     client = get_client()
     online = client.is_online()
-    st.sidebar.markdown(
-        f"**Backend:** {'🟢 online' if online else '🔴 offline'}  \n"
-        f"<span style='font-size:0.8rem;color:#6B7280'>{client.base_url}</span>",
-        unsafe_allow_html=True,
-    )
-    if not online:
-        st.sidebar.caption(
-            "Charts below still work — they read the CSV directly. "
-            "Start the API for questions and reports:\n\n"
-            "`uvicorn backend.app:app --reload --port 8000`"
-        )
-
-    st.sidebar.divider()
+    # Status only. The four-line "here is how to start uvicorn" block that used
+    # to sit here was troubleshooting documentation living permanently in the
+    # chrome — see theme.status() for the reasoning.
+    st.sidebar.markdown(theme.status(online, client.base_url),
+                        unsafe_allow_html=True)
 
     # --- Ask Question -----------------------------------------------------
-    st.sidebar.subheader("Ask a Question")
+    st.sidebar.markdown(theme.side_group("Ask a question", "ask"),
+                        unsafe_allow_html=True)
     question = st.sidebar.text_area(
         "Question",
         value="Which employees show the strongest signs of burnout, and why?",
@@ -158,10 +132,10 @@ def render_sidebar(frame: pd.DataFrame | None):
         label_visibility="collapsed",
     )
     col_a, col_b = st.sidebar.columns(2)
-    top_k = col_a.number_input("Records", 1, 25, 5, help="How many records to retrieve")
+    top_k = col_a.number_input("Records", 1, 25, 5)
     include_sources = col_b.checkbox("Show sources", value=True)
 
-    if st.sidebar.button("Ask", type="primary", use_container_width=True,
+    if st.sidebar.button("Ask", type="primary", width="stretch",
                          disabled=not online):
         with st.spinner("Retrieving records and generating an explanation…"):
             result = client.query(
@@ -171,15 +145,9 @@ def render_sidebar(frame: pd.DataFrame | None):
         st.session_state.rag_answer = result
         st.session_state.last_question = question
 
-    st.sidebar.divider()
-
     # --- Refresh Database -------------------------------------------------
-    st.sidebar.subheader("Refresh Database")
-    st.sidebar.caption(
-        "Re-reads Person 2's CSV and rebuilds the vector index. Run this after "
-        "the ML pipeline has been re-run."
-    )
-    if st.sidebar.button("Refresh", use_container_width=True, disabled=not online):
+    st.sidebar.markdown(theme.side_group("Data", "data"), unsafe_allow_html=True)
+    if st.sidebar.button("Refresh", width="stretch", disabled=not online):
         with st.spinner("Rebuilding the vector store…"):
             result = client.refresh(force=True)
         if result:
@@ -192,10 +160,8 @@ def render_sidebar(frame: pd.DataFrame | None):
         else:
             st.sidebar.error(result.error or "Refresh failed.")
 
-    st.sidebar.divider()
-
     # --- Generate Report --------------------------------------------------
-    st.sidebar.subheader("Generate Report")
+    st.sidebar.markdown(theme.side_group("Report", "report"), unsafe_allow_html=True)
     scope = st.sidebar.selectbox(
         "Scope",
         ["all", "at_risk", "high_only", "employee"],
@@ -218,7 +184,7 @@ def render_sidebar(frame: pd.DataFrame | None):
         "Focus (optional)", placeholder="e.g. workload distribution"
     )
 
-    if st.sidebar.button("Generate", use_container_width=True, disabled=not online):
+    if st.sidebar.button("Generate", width="stretch", disabled=not online):
         with st.spinner("Generating the report…"):
             result = client.report(
                 scope=scope, title=report_title,
@@ -226,10 +192,44 @@ def render_sidebar(frame: pd.DataFrame | None):
             )
         st.session_state.report_payload = result
 
-    st.sidebar.divider()
+    # --- Upload documents -------------------------------------------------
+    st.sidebar.markdown(theme.side_group("Upload communication", "upload"),
+                        unsafe_allow_html=True)
+    uploaded = st.sidebar.file_uploader(
+        "Choose files",
+        type=["pdf", "png", "jpg", "jpeg", "webp", "bmp", "tiff", "txt", "md", "csv"],
+        accept_multiple_files=True,
+        label_visibility="collapsed",
+    )
+    add_to_index = st.sidebar.checkbox(
+        "Make searchable by the RAG panel",
+        value=True,
+    )
+
+    if st.sidebar.button(
+        "Analyse Uploads", width="stretch",
+        disabled=not online or not uploaded,
+    ):
+        results = []
+        progress = st.sidebar.progress(0.0, text="Analysing…")
+        for position, upload in enumerate(uploaded, start=1):
+            progress.progress(
+                position / len(uploaded), text=f"Analysing {upload.name}…"
+            )
+            results.append(
+                client.ingest(
+                    upload.getvalue(), upload.name, index=add_to_index,
+                    id_prefix="DOC",
+                )
+            )
+        progress.empty()
+        st.session_state.uploads = results
+
+    if not online and uploaded:
+        st.sidebar.caption("Start the backend to analyse uploads.")
 
     # --- Filters ----------------------------------------------------------
-    st.sidebar.subheader("Filters")
+    st.sidebar.markdown(theme.side_group("Filters", "filter"), unsafe_allow_html=True)
     if frame is None or frame.empty:
         return {"risk": [], "sentiment": [], "search": ""}
 
@@ -257,21 +257,21 @@ def render_analysis(analysis: dict, degraded: bool, notes: list):
     """Render the eight-key analysis returned by the pipeline."""
     if degraded:
         st.markdown(
-            "<div class='degraded'><b>Degraded answer.</b> The language model "
-            "was unreachable, so this was assembled directly from the ML "
-            "pipeline's rule-based output with no generated interpretation."
-            "</div>",
+            theme.callout(
+                "The language model was unreachable, so this was assembled "
+                "directly from the ML pipeline's rule-based output with no "
+                "generated interpretation.",
+                tone="alert", label="Degraded answer.",
+            ),
             unsafe_allow_html=True,
         )
 
-    st.markdown("#### Burnout Summary")
-    st.write(analysis.get("burnout_summary", "—"))
-
     risk = analysis.get("risk_level", "Unknown")
     st.markdown(
-        f"**Assessed risk level:** "
-        f"<span style='color:{RISK_COLOURS.get(risk, '#8A8A8A')};"
-        f"font-weight:700'>{risk}</span>",
+        theme.analysis_block("Burnout summary",
+                             analysis.get("burnout_summary", "—"))
+        + f'<div class="analysis-body" style="margin-top:.55rem">'
+          f'Assessed risk level &nbsp;{theme.pill(risk)}</div>',
         unsafe_allow_html=True,
     )
 
@@ -280,31 +280,32 @@ def render_analysis(analysis: dict, degraded: bool, notes: list):
     note = analysis.get("confidence_note")
     if note:
         st.markdown(
-            f"<div class='caveat'><b>Confidence and limitations.</b> {note}</div>",
+            theme.callout(note, tone="caution",
+                          label="Confidence and limitations."),
             unsafe_allow_html=True,
         )
 
-    st.markdown("#### Emotional Analysis")
-    st.write(analysis.get("emotional_analysis", "—"))
+    st.markdown(
+        theme.analysis_block("Emotional analysis",
+                             analysis.get("emotional_analysis", "—")),
+        unsafe_allow_html=True,
+    )
 
     left, right = st.columns(2)
     for column, (heading, key) in zip(
         (left, right, left, right),
         (
-            ("Possible Causes", "possible_causes"),
-            ("Suggested Interventions", "suggested_interventions"),
-            ("HR Recommendations", "hr_recommendations"),
-            ("Mental Wellness Suggestions", "mental_wellness_suggestions"),
+            ("Possible causes", "possible_causes"),
+            ("Suggested interventions", "suggested_interventions"),
+            ("HR recommendations", "hr_recommendations"),
+            ("Mental wellness suggestions", "mental_wellness_suggestions"),
         ),
     ):
         with column:
-            st.markdown(f"#### {heading}")
-            items = analysis.get(key) or []
-            if items:
-                for item in items:
-                    st.markdown(f"- {item}")
-            else:
-                st.caption("None identified from the available evidence.")
+            st.markdown(
+                theme.analysis_block(heading, items=analysis.get(key) or []),
+                unsafe_allow_html=True,
+            )
 
     if notes:
         with st.expander("Retrieval notes"):
@@ -312,45 +313,228 @@ def render_analysis(analysis: dict, degraded: bool, notes: list):
                 st.caption(f"• {note_text}")
 
 
+
+
+def _chart(figure, caption: str = "") -> None:
+    """Render one chart inside a bordered panel.
+
+    `st.container(border=True)` rather than CSS on the chart wrapper. Styling
+    `[data-testid="stPlotlyChart"]` with a border and padding changed the box
+    Streamlit had already measured, so the figure overflowed by exactly that
+    amount and grew a scrollbar. The native container draws the border OUTSIDE
+    the measured area, which is why it does not.
+    """
+    with st.container(border=True):
+        st.plotly_chart(figure, width="stretch")
+        if caption:
+            st.caption(caption)
+
+
+def _table_config(frame: pd.DataFrame) -> dict:
+    """Column formatting shared by every record table.
+
+    `st.column_config` is used instead of pre-formatting strings in pandas
+    because it keeps the underlying values numeric — so the user can still sort
+    by score — while displaying them as progress bars. Formatting into strings
+    would make "10" sort before "9".
+    """
+    config = {
+        "Employee": st.column_config.TextColumn("Employee", width="small"),
+        "Risk": st.column_config.TextColumn("Risk", width="small"),
+        "Message": st.column_config.TextColumn("Message", width="large"),
+        # "Why flagged" was cut mid-word ("Negative sentiment detected, Sadness-").
+        # It is the column that explains the score, so it gets real room.
+        "Why flagged": st.column_config.TextColumn("Why flagged", width="large"),
+        "Sentiment": st.column_config.TextColumn("Sentiment", width="small"),
+        "Top emotion": st.column_config.TextColumn("Top emotion", width="small"),
+    }
+    if "Score" in frame.columns:
+        top = max(1.0, float(pd.to_numeric(frame["Score"], errors="coerce").max()))
+        config["Score"] = st.column_config.ProgressColumn(
+            "Score", min_value=0, max_value=top, format="%.0f", width="small",
+        )
+    if "Confidence" in frame.columns:
+        # max_value=100, not 1.
+        #
+        # ProgressColumn runs printf on the RAW value, so a confidence of 0.987
+        # with format "%.0f%%" rendered as "1%" on every row — the bar was
+        # correct, the label was nonsense. The column is scaled to 0-100 in
+        # _numeric_table so the number and the bar agree.
+        config["Confidence"] = st.column_config.ProgressColumn(
+            "Confidence", min_value=0, max_value=100,
+            format="%.0f%%", width="small",
+        )
+    return config
+
+
+def _numeric_table(frame: pd.DataFrame) -> pd.DataFrame:
+    """Rename columns for display but keep numbers numeric for the bars."""
+    columns = {
+        "employee_id": "Employee", "risk_level": "Risk", "burnout_score": "Score",
+        "sentiment": "Sentiment", "confidence": "Confidence",
+        "dominant_emotion": "Top emotion", "clean_text": "Message",
+        "explanation": "Why flagged",
+    }
+    keep = [c for c in columns if c in frame.columns]
+    display = frame[keep].rename(columns=columns).copy()
+
+    # Confidence arrives as 0-1 from the model; ProgressColumn formats the raw
+    # value, so it is scaled here rather than in the column config.
+    if "Confidence" in display.columns:
+        display["Confidence"] = pd.to_numeric(
+            display["Confidence"], errors="coerce"
+        ).fillna(0) * 100
+
+    return display
+
+
+def render_uploads() -> None:
+    """Render the analysis of any uploaded documents.
+
+    Kept visually separate from the main dataset throughout — different
+    section, `DOC_` prefixed IDs, its own metrics. Uploaded messages are not
+    part of Person 2's dataset and must never be mistaken for it, or a user
+    would draw conclusions about the organisation from a single conversation
+    they happened to paste in.
+    """
+    uploads = st.session_state.get("uploads") or []
+    if not uploads:
+        return
+
+    st.subheader("Uploaded Communication")
+
+    for result in uploads:
+        if not result:
+            st.error(result.error or "Upload failed.")
+            if result.hint:
+                st.code(result.hint)
+            continue
+
+        data = result.data or {}
+        name = data.get("filename", "document")
+        count = data.get("message_count", 0)
+
+        with st.expander(f"**{name}** — {count} message(s)", expanded=True):
+            if count == 0:
+                st.warning("No messages could be extracted from this file.")
+                for warning in data.get("warnings", []):
+                    st.caption(f"• {warning}")
+                continue
+
+            stats = data.get("statistics") or {}
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Messages", count)
+            col2.metric("At risk", stats.get("at_risk_count", 0))
+            col3.metric(
+                "Burnout share", f"{stats.get('overall_burnout_percent', 0)}%"
+            )
+            col4.metric(
+                "Read via",
+                "OCR" if data.get("ocr_used") else data.get("extraction_method", "—"),
+            )
+
+            # OCR quality is the single most important caveat on an uploaded
+            # screenshot, so it is a visible warning rather than a footnote.
+            if data.get("ocr_used"):
+                st.markdown(
+                    theme.callout(
+                        "Character recognition errors (for example <code>I</code> "
+                        "read as <code>|</code>) reduce sentiment and emotion "
+                        "accuracy. Treat these scores as approximate.",
+                        tone="caution", label="Read with OCR.",
+                    ),
+                    unsafe_allow_html=True,
+                )
+
+            if data.get("split_strategy") in ("paragraph", "whole-document"):
+                st.info(
+                    f"No email or chat structure was detected, so the document "
+                    f"was split by **{data['split_strategy']}**. Burnout signals "
+                    f"are diluted in long blocks — results improve when sender "
+                    f"names and timestamps are present."
+                )
+
+            messages = data.get("messages", [])
+            if messages:
+                frame = pd.DataFrame(messages)
+                # Sender and timestamp are deliberately not shown. They are
+                # document metadata, not analysis: a transcript with no
+                # timestamps renders an entirely blank column, which reads as
+                # a defect rather than as absent data.
+                columns = [
+                    c for c in
+                    ["employee_id", "risk_level",
+                     "burnout_score", "sentiment", "confidence",
+                     "dominant_emotion", "clean_text", "explanation"]
+                    if c in frame.columns
+                ]
+                display = frame[columns].rename(columns={
+                    "employee_id": "Employee", "risk_level": "Risk",
+                    "burnout_score": "Score", "sentiment": "Sentiment",
+                    "confidence": "Confidence",
+                    "dominant_emotion": "Top emotion",
+                    "clean_text": "Message", "explanation": "Why flagged",
+                })
+                st.dataframe(display, width="stretch", hide_index=True,
+                             column_config=_table_config(display))
+
+            if stats:
+                left, right = st.columns(2)
+                with left:
+                    _chart(risk_distribution_bar(
+                        stats.get("risk_distribution", {})))
+                with right:
+                    _chart(sentiment_pie(
+                        stats.get("sentiment_distribution", {})))
+
+            if data.get("indexed"):
+                st.success(
+                    f"{data.get('indexed_count', 0)} message(s) added to the "
+                    f"search index — you can now ask the RAG panel about this "
+                    f"conversation. Refresh Database clears them."
+                )
+
+            for warning in data.get("warnings", []):
+                st.caption(f"• {warning}")
+
+    st.divider()
+
+
 def render_sources(sources: list):
     """Show the records the answer was grounded in."""
     if not sources:
         return
     st.markdown("#### Evidence used")
-    st.caption(
-        "These records grounded the answer above. Relevance is cosine "
-        "similarity between the question and the record, from 0 to 1."
-    )
     frame = pd.DataFrame(sources)
+    # Score, sentiment and retrieval similarity are omitted by request. The
+    # explainability claim still holds: the record itself and the reason it
+    # was flagged are both shown, which is what a reader needs in order to
+    # check the answer rather than trust it.
     columns = [
         c for c in
-        ["employee_id", "risk_level", "burnout_score", "sentiment",
-         "similarity", "clean_text", "explanation"]
+        ["employee_id", "risk_level", "clean_text", "explanation"]
         if c in frame.columns
     ]
-    st.dataframe(
-        frame[columns].rename(
-            columns={
-                "employee_id": "Employee", "risk_level": "Risk",
-                "burnout_score": "Score", "sentiment": "Sentiment",
-                "similarity": "Relevance", "clean_text": "Message",
-                "explanation": "Why flagged",
-            }
-        ),
-        use_container_width=True,
-        hide_index=True,
-    )
+    display = frame[columns].rename(columns={
+        "employee_id": "Employee", "risk_level": "Risk",
+        "clean_text": "Message", "explanation": "Why flagged",
+    })
+    st.dataframe(display, width="stretch", hide_index=True,
+                 column_config=_table_config(display))
 
 
 # ==============================================================================
 # Main
 # ==============================================================================
 def main() -> None:
-    st.title(APP_TITLE)
-    st.caption(
-        "Continuous analysis of workplace communication using RoBERTa "
-        "sentiment, NRC emotion signals, behavioural features and "
-        "Retrieval-Augmented Generation."
+    st.markdown(
+        theme.masthead(
+            APP_TITLE,
+            "Continuous analysis of workplace communication — RoBERTa sentiment, "
+            "NRC emotion signals, behavioural features and Retrieval-Augmented "
+            "Generation.",
+        ),
+        unsafe_allow_html=True,
     )
 
     nonce = int(st.session_state.force_reload)
@@ -376,84 +560,102 @@ def main() -> None:
     )
 
     # --- headline metrics -------------------------------------------------
-    band, _ = gauge_band(stats["overall_burnout_percent"])
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Records analysed", stats["total_records"])
-    col2.metric(
-        "Overall burnout", f"{stats['overall_burnout_percent']}%", band,
-        delta_color="off",
+    band, band_colour = gauge_band(stats["overall_burnout_percent"])
+    risk = stats["risk_distribution"]
+    st.markdown(
+        theme.kpi_row([
+            ("Records analysed", f"{stats['total_records']:,}",
+             f"from {filters.get('source_label', 'the dataset')}", None),
+            ("Overall burnout", f"{stats['overall_burnout_percent']}%",
+             f"{band} · Medium + High share", band_colour),
+            ("At risk", f"{stats['at_risk_count']}",
+             f"{risk.get('High', 0)} high · {risk.get('Medium', 0)} medium",
+             theme.RISK["Medium"] if stats["at_risk_count"] else theme.RISK["Low"]),
+            ("Dominant emotion", str(stats["dominant_emotion"]).title(),
+             "most frequent NRC signal", None),
+        ]),
+        unsafe_allow_html=True,
     )
-    col3.metric("At risk (Med + High)", stats["at_risk_count"])
-    col4.metric("Most frequent emotion", str(stats["dominant_emotion"]).title())
-
-    st.divider()
 
     # --- charts -----------------------------------------------------------
+    st.markdown(
+        theme.section("Overview", "Burnout and sentiment profile",
+                      "Aggregate view across every analysed record.", "chart"),
+        unsafe_allow_html=True,
+    )
+    # Both columns carry a caption of the same length so the two panels end at
+    # the same y. A caption on one side only left the rows visibly out of step.
     left, right = st.columns([1, 1])
     with left:
-        st.plotly_chart(
-            burnout_gauge(
-                stats["overall_burnout_percent"], stats["mean_burnout_percent"]
-            ),
-            use_container_width=True,
+        _chart(
+            burnout_gauge(stats["overall_burnout_percent"]),
+            f"Share of records at Medium or High risk. "
+            f"Mean normalised score: {stats['mean_burnout_percent']}%.",
         )
     with right:
-        st.plotly_chart(
+        _chart(
             sentiment_pie(stats["sentiment_distribution"]),
-            use_container_width=True,
+            "RoBERTa sentiment labels across every analysed record.",
         )
 
     left, right = st.columns([1, 1])
     with left:
-        st.plotly_chart(
-            emotion_bar(stats["emotion_totals"]), use_container_width=True
-        )
+        _chart(emotion_bar(stats["emotion_totals"]),
+               "NRC lexicon word matches. Counts, not intensities.")
     with right:
-        st.plotly_chart(
-            risk_distribution_bar(stats["risk_distribution"]),
-            use_container_width=True,
-        )
+        _chart(risk_distribution_bar(stats["risk_distribution"]),
+               "Thresholds from the ML pipeline: Low \u2264 2, Medium \u2264 5.")
 
     left, right = st.columns([1, 1])
     with left:
-        st.plotly_chart(risk_donut(stats["risk_distribution"]),
-                        use_container_width=True)
+        _chart(risk_donut(stats["risk_distribution"]),
+               "The same risk counts as proportions.")
     with right:
-        st.plotly_chart(score_histogram(frame), use_container_width=True)
+        _chart(score_histogram(frame),
+               "Shape matters: risk concentrated in a few people is a "
+               "different problem from risk spread thinly.")
 
-    st.plotly_chart(employee_risk_scatter(frame), use_container_width=True)
-
-    st.divider()
+    _chart(employee_risk_scatter(frame),
+           "A high score on a low-confidence prediction is weaker evidence. "
+           "Points toward the lower right deserve a human check first.")
 
     # --- top high risk ----------------------------------------------------
-    st.subheader("Top High-Risk Employees")
-    st.caption(
-        "Ranked by the burnout score from the ML pipeline. Ties are broken by "
-        "employee ID so the ordering is stable between reruns."
+    st.markdown(
+        theme.section("Priority", "Highest-risk records",
+                      "Ranked by the burnout score from the ML pipeline. Ties "
+                      "break by employee ID, so the ordering is stable between "
+                      "reruns.", "shield"),
+        unsafe_allow_html=True,
     )
-    st.dataframe(
-        format_table(top_high_risk(frame, 10)),
-        use_container_width=True,
-        hide_index=True,
-    )
+    top = _numeric_table(top_high_risk(frame, 10))
+    st.dataframe(top, width="stretch", hide_index=True,
+                 column_config=_table_config(top))
 
     # --- searchable records ----------------------------------------------
-    st.subheader("All Records")
-    st.caption(
-        f"Showing {len(filtered)} of {len(frame)} records. "
-        "Search matches employee ID, message text and explanation literally."
+    st.markdown(
+        theme.section("Explore", "All records",
+                      f"Showing {len(filtered)} of {len(frame)}. Search matches "
+                      f"employee ID, message text and explanation literally — "
+                      f"not semantically.", "search"),
+        unsafe_allow_html=True,
     )
     if filtered.empty:
         st.info("No records match the current filters.")
     else:
-        st.dataframe(
-            format_table(filtered), use_container_width=True, hide_index=True
-        )
+        table = _numeric_table(filtered)
+        st.dataframe(table, width="stretch", hide_index=True,
+                     column_config=_table_config(table))
 
-    st.divider()
+    # --- uploaded documents ----------------------------------------------
+    render_uploads()
 
     # --- RAG panel --------------------------------------------------------
-    st.subheader("RAG Recommendations")
+    st.markdown(
+        theme.section("Explainable AI", "Retrieval-augmented analysis",
+                      "Grounded in the specific records shown as evidence "
+                      "below each answer.", "sparkle"),
+        unsafe_allow_html=True,
+    )
     answer = st.session_state.rag_answer
 
     if answer is None:
@@ -467,12 +669,9 @@ def main() -> None:
             st.code(answer.hint)
     else:
         data = answer.data or {}
-        st.caption(
-            f"**Question:** {data.get('question', '')}  \n"
-            f"{data.get('retrieved_count', 0)} record(s) retrieved · "
-            f"{data.get('llm_provider', '')}/{data.get('llm_model', '')} · "
-            f"{data.get('elapsed_seconds', 0):.1f}s"
-        )
+        # The provider/model/latency/retrieval-count line was removed: it is
+        # run metadata for a developer, not information a reader of the
+        # analysis needs. It remains available on GET /health.
         render_analysis(
             data.get("answer", {}) or {},
             bool(data.get("degraded")),
@@ -480,10 +679,13 @@ def main() -> None:
         )
         render_sources(data.get("sources", []) or [])
 
-    st.divider()
-
     # --- report + PDF -----------------------------------------------------
-    st.subheader("Report")
+    st.markdown(
+        theme.section("Deliverable", "Structured report",
+                      "Generated from the sidebar. Exports to PDF with the "
+                      "confidence note ahead of the recommendations.", "download"),
+        unsafe_allow_html=True,
+    )
     report = st.session_state.report_payload
 
     if report is None:
