@@ -53,6 +53,40 @@ if __package__ in (None, ""):  # pragma: no cover - script-mode only
 import numpy as np
 import pandas as pd
 
+
+def _disable_arrow_strings() -> None:
+    """Keep pandas off PyArrow-backed string arrays.
+
+    THE CRASH THIS PREVENTS
+        pandas 3.0 makes PyArrow the default storage for string columns. On
+        Python 3.14 / Apple Silicon, PyArrow's bundled mimalloc allocator
+        segfaults inside `arrow::py::NumPyConverter::Convert` when a DataFrame
+        is built from Python objects — which is exactly what happens when the
+        benchmark turns its list of result dicts into a table.
+
+        The failure is a SIGSEGV, not an exception, so it cannot be caught:
+        the process dies and every result computed up to that point is lost.
+        It also looks nothing like its cause. The traceback points at whatever
+        stage happened to be running, which made it read as a quantum
+        simulator bug for several runs.
+
+        Selecting the Python string backend avoids PyArrow entirely. The only
+        cost is slightly slower string handling on tables of a few dozen rows,
+        which is irrelevant here.
+
+        Both option names are attempted because the spelling changed between
+        pandas 2 and 3, and a missing option must not be fatal.
+    """
+    for option, value in (("mode.string_storage", "python"),
+                          ("future.infer_string", False)):
+        try:
+            pd.set_option(option, value)
+        except Exception:          # option absent on this pandas version
+            pass
+
+
+_disable_arrow_strings()
+
 from quantum import REPO_ROOT
 from quantum.circuits import CircuitSpec
 from quantum.classical_baseline import ModelResult, run_classical_baselines
@@ -119,6 +153,45 @@ def run_benchmark(
 
     results: List[ModelResult] = []
 
+    def checkpoint(stage: str) -> None:
+        """Write whatever has completed so far to disk.
+
+        WHY THIS EXISTS
+            The quantum simulators are native extensions. On some interpreter
+            and platform combinations they abort the process with a
+            segmentation fault rather than raising — and a segfault cannot be
+            caught by `except`, so neither the final save nor the emergency
+            dump ever runs. Every result computed before the crash was being
+            lost, including the classical baselines that had already finished
+            in milliseconds.
+
+            Checkpointing after each stage means a crash costs only the stage
+            that crashed. The partial CSV is still a publishable artifact for
+            the models that did complete.
+        """
+        if not results:
+            return
+        try:
+            OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+            partial = {
+                "data": data.describe(),
+                "circuit": spec.describe(),
+                "environment": environment(),
+                "kernel_max_train": kernel_max_train,
+                "checkpoint_after": stage,
+                "complete": False,
+                "total_seconds": round(time.perf_counter() - started, 2),
+                "results": [r.row() for r in results],
+            }
+            pd.DataFrame(partial["results"]).to_csv(
+                OUTPUT_DIR / "benchmark_results.csv", index=False)
+            (OUTPUT_DIR / "benchmark_summary.json").write_text(
+                json.dumps(partial, indent=2, default=str))
+            logger.info("  checkpoint saved after '%s' (%d model(s))",
+                        stage, len(results))
+        except Exception as exc:          # never let saving break the run
+            logger.warning("  checkpoint failed after '%s': %s", stage, exc)
+
     logger.info("--- classical baselines ---")
     results.extend(run_classical_baselines(data))
 
@@ -127,6 +200,7 @@ def run_benchmark(
     capped = _classical_on_capped_subset(data, kernel_max_train)
     if capped:
         results.append(capped)
+    checkpoint("classical")
 
     if not skip_quantum:
         logger.info("--- PennyLane ---")
@@ -141,6 +215,9 @@ def run_benchmark(
             )
         except ImportError as exc:
             logger.error("PennyLane unavailable: %s", exc)
+        except Exception as exc:
+            logger.error("PennyLane stage failed: %s", exc)
+        checkpoint("pennylane")
 
         if not skip_qiskit:
             logger.info("--- Qiskit ---")
@@ -155,6 +232,9 @@ def run_benchmark(
                 )
             except ImportError as exc:
                 logger.error("Qiskit unavailable: %s", exc)
+            except Exception as exc:
+                logger.error("Qiskit stage failed: %s", exc)
+            checkpoint("qiskit")
 
     elapsed = time.perf_counter() - started
 
